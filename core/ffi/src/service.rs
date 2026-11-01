@@ -1137,6 +1137,37 @@ mod tests {
     }
 
     #[test]
+    fn preview_reaches_the_equalizer_apo_config_and_clears() {
+        // Windows "Hold to listen": preview must show up in the APO include file
+        // for the current device, and go away when released.
+        let mut core = Core::new(None, "win-1");
+        let dev = json!({"uid":"{0.0.0.00000000}.{kz}","name":"KZ","kind":"analog"});
+        cmd(&mut core, json!({"cmd":"set_connected","devices":[dev]}));
+        cmd(&mut core, json!({"cmd":"set_device","device":dev}));
+        let flat = cmd(&mut core, json!({"cmd":"apo_config"}))["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let mut p = Profile::new("held");
+        p.macros.bass = 6.0;
+        cmd(&mut core, json!({"cmd":"preview","profile":p}));
+        let held = cmd(&mut core, json!({"cmd":"apo_config"}))["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            held.contains("Filter") && held.contains("105"),
+            "preview missing from APO config:\n{held}"
+        );
+        cmd(&mut core, json!({"cmd":"preview","profile":null}));
+        let after = cmd(&mut core, json!({"cmd":"apo_config"}))["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_eq!(after, flat);
+    }
+
+    #[test]
     fn bad_json_is_an_error_not_a_panic() {
         let mut core = Core::new(None, "m");
         let r = cmd(&mut core, json!({"cmd":"nope"}));

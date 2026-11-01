@@ -33,6 +33,7 @@ em só um dos apps sem justificativa. Veja `CONTRIBUTING.md`.
 | Volume do sistema | `volume` | ✅ | ✅ |  |
 | Boost até +12 dB com limitador | `boost` | ✅ | ⛔ | Equalizer APO não tem limitador; no Windows aparece desligado com aviso até existir motor próprio. |
 | Dispositivos: nome, padrão, favoritos, vínculo entre máquinas, regras por app | `devices-rules` | ✅ | ✅ | Windows tem o campo .exe nas regras. |
+| Vincular/desvincular fone entre máquinas com confirmação | `link-feedback` | ✅ | ✅ |  |
 | Sync: servidor, hospedar na rede local, procurar na rede | `sync` | ✅ | ✅ |  |
 | Máquinas conectadas (online / visto há…) | `sync-peers` | ✅ | ✅ |  |
 | Atualizações: automático + "Verificar agora" com progresso | `update-check` | ✅ | ✅ |  |

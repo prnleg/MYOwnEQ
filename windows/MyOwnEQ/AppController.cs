@@ -317,12 +317,24 @@ public sealed class AppController : IDisposable
 
     public float[]? Spectrum() => Core.Spectrum(_spectrum) ? _spectrum : null;
 
+    /// <summary>Link the current device with the same headphones on another machine; says so.</summary>
+    // parity: link-feedback
     public void Link(string otherGroup)
     {
-        if (State?.Group is { } g) Apply(Core.Command("link_groups", new { into = g, other = otherGroup }));
+        if (State?.Group is not { } g || State.FindGroup(otherGroup) is not { } o) return;
+        string who = $"{o.Name} · {MachineName(o.Members.FirstOrDefault()?.Key.Machine ?? "")}";
+        var r = Core.Command("link_groups", new { into = g, other = otherGroup });
+        Apply(r);
+        if (r["ok"]?.GetValue<bool>() != false) Notify(UI.Loc.L("Linked with %@. Profile and favorites now follow on both.", who));
     }
 
-    public void Unlink(DeviceKey key) => Apply(Core.Command("unlink_device", new { key }));
+    public void Unlink(DeviceKey key)
+    {
+        var name = State?.CurrentGroup?.Members.FirstOrDefault(m => m.Key.Equals(key))?.OsName ?? key.Uid;
+        var r = Core.Command("unlink_device", new { key });
+        Apply(r);
+        if (r["ok"]?.GetValue<bool>() != false) Notify(UI.Loc.L("Unlinked %@.", $"{name} · {MachineName(key.Machine)}"));
+    }
 
     // ---------------------------------------------------------------- Equalizer APO
 

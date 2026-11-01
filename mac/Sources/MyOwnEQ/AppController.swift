@@ -295,13 +295,21 @@ final class AppController: ObservableObject {
         }
     }
 
+    /// Link the current device with the same headphones on another machine; says so.
+    // parity: link-feedback
     func link(_ other: ID) {
-        guard let g = state?.group else { return }
-        apply(core.command("link_groups", ["into": g, "other": other]))
+        guard let g = state?.group, let o = state?.group(other) else { return }
+        let who = "\(o.name) · \(machineName(o.members.first?.key.machine ?? ""))"
+        let r = core.command("link_groups", ["into": g, "other": other])
+        apply(r)
+        if r["ok"] as? Bool != false { notify(L("Linked with %@. Profile and favorites now follow on both.", who)) }
     }
 
     func unlink(_ key: DeviceKey) {
-        apply(core.command("unlink_device", ["key": ["machine": key.machine, "uid": key.uid]]))
+        let name = state?.currentGroup?.members.first { $0.key == key }?.osName ?? key.uid
+        let r = core.command("unlink_device", ["key": ["machine": key.machine, "uid": key.uid]])
+        apply(r)
+        if r["ok"] as? Bool != false { notify(L("Unlinked %@.", "\(name) · \(machineName(key.machine))")) }
     }
 
     // MARK: - updates

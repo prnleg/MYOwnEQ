@@ -167,7 +167,9 @@ public sealed class ProfileEditor : ScrollViewer
         UIElement right = IsActive
             ? Ui.HStack(6, Ui.Glyph(Ui.GCheck, 13, Theme.Frozen(t.AccentColor)), Ui.Text(L("In use"), 13, FontWeights.SemiBold, color: Theme.Frozen(t.AccentColor)))
             : Ui.Button(L("Use Now"), () => { if (Dirty) Commit(); _c.Select(_draft.Id); }, prominent: true);
-        _actionsHost.Content = IsActive ? Ui.Spread(new Border(), right) : Ui.Spread(HoldToListen(), right);
+        // Never rebuild while held: the button would lose the mouse and the preview would stop.
+        if (!_holding)
+            _actionsHost.Content = IsActive ? Ui.Spread(new Border(), right) : Ui.Spread(HoldToListen(), right);
 
         if (NeedsAsk)
         {
