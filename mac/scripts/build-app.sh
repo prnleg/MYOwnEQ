@@ -13,7 +13,9 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MAC="$ROOT/mac"
 OUT="$MAC/build"
 APP="$OUT/MyOwnEQ.app"
-source "$HOME/.cargo/env" 2>/dev/null || true
+if ! command -v cargo >/dev/null && [[ -f "$HOME/.cargo/env" ]]; then
+  set +u; source "$HOME/.cargo/env"; set -u
+fi
 
 if [[ "${1:-}" == "--native" ]]; then
   ARCHS=("$(uname -m | sed 's/arm64/aarch64/')")
