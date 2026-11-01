@@ -1,0 +1,4 @@
+# Link the C runtime statically on Windows so myowneq_ffi.dll doesn't need the
+# Visual C++ Redistributable (vcruntime140.dll) installed on the user's PC.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

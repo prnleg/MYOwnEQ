@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
-using System.Drawing.Drawing2D;
+using System.Drawing.Imaging;
+using System.IO;
 using System.Windows.Forms;
 
 namespace MyOwnEQ.UI;
@@ -37,26 +38,52 @@ public sealed class TrayIcon : IDisposable
         _icon.Text = text.Length > 63 ? text[..63] : text;
     }
 
-    /// <summary>Three slider lines with knobs, drawn at runtime (no icon asset needed).</summary>
+    /// <summary>The app logo (Assets/MyOwnEQ.ico) at tray size; grayscale when off.</summary>
     private static Icon Draw(bool on)
     {
-        using var bmp = new Bitmap(32, 32);
-        using (var g = Graphics.FromImage(bmp))
+        var size = SystemInformation.SmallIconSize;
+        Icon logo;
+        try
         {
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            var line = on ? Color.FromArgb(235, 235, 235) : Color.FromArgb(140, 140, 140);
-            var knob = on ? Color.FromArgb(0, 120, 215) : Color.FromArgb(120, 120, 120);
-            using var pen = new Pen(line, 3) { StartCap = LineCap.Round, EndCap = LineCap.Round };
-            using var brush = new SolidBrush(knob);
-            int[] ys = { 8, 16, 24 };
-            int[] xs = { 20, 10, 16 };
-            for (int i = 0; i < 3; i++)
-            {
-                g.DrawLine(pen, 4, ys[i], 28, ys[i]);
-                g.FillEllipse(brush, xs[i] - 5, ys[i] - 5, 10, 10);
-            }
+            var res = System.Windows.Application.GetResourceStream(new Uri("pack://application:,,,/Assets/MyOwnEQ.ico"));
+            using var stream = res!.Stream;
+            logo = new Icon(stream, size);
         }
-        return Icon.FromHandle(bmp.GetHicon());
+        catch
+        {
+            logo = Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? SystemIcons.Application;
+        }
+        if (on) return logo;
+        using var color = logo.ToBitmap();
+        using var gray = new Bitmap(color.Width, color.Height);
+        using (var g = Graphics.FromImage(gray))
+        {
+            var m = new ColorMatrix(new[]
+            {
+                new[] { .3f, .3f, .3f, 0f, 0f },
+                new[] { .59f, .59f, .59f, 0f, 0f },
+                new[] { .11f, .11f, .11f, 0f, 0f },
+                new[] { 0f, 0f, 0f, .6f, 0f },
+                new[] { 0f, 0f, 0f, 0f, 1f },
+            });
+            using var attrs = new ImageAttributes();
+            attrs.SetColorMatrix(m);
+            g.DrawImage(color, new Rectangle(0, 0, gray.Width, gray.Height), 0, 0, color.Width, color.Height, GraphicsUnit.Pixel, attrs);
+        }
+        logo.Dispose();
+        return Icon.FromHandle(gray.GetHicon());
+    }
+
+    /// <summary>Once per install: tell the user where the icon lives (Windows 11
+    /// hides new tray icons behind the ^ arrow).</summary>
+    public void ShowFirstRunHint()
+    {
+        var flag = Path.Combine(CoreBridge.DataDir, "tray-hint-shown");
+        if (File.Exists(flag)) return;
+        _icon.ShowBalloonTip(8000, "MyOwnEQ is running",
+            "Find it in the taskbar corner (click ^ if hidden). Tip: drag the icon next to the clock to keep it visible.",
+            ToolTipIcon.Info);
+        try { File.WriteAllText(flag, DateTime.Now.ToString("o")); } catch { }
     }
 
     public void Dispose()

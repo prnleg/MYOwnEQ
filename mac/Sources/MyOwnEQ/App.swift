@@ -8,13 +8,14 @@ struct MyOwnEQApp: App {
     @ObservedObject private var lang = Lang.shared
 
     init() {
-        // Build-time helper: `MyOwnEQ --render-icon <wave|finger> <px> <out.png>`.
+        // Build-time helper: `MyOwnEQ --render-icon <wave|finger> <px> <out.png> [fill 0..1]`.
         let args = CommandLine.arguments
         if let i = args.firstIndex(of: "--render-icon"), args.count > i + 3 {
             let ok = MainActor.assumeIsolated {
                 LogoRenderer.renderPNG(style: LogoStyle(rawValue: args[i + 1]) ?? .wave,
                                        size: CGFloat(Double(args[i + 2]) ?? 1024),
-                                       to: URL(fileURLWithPath: args[i + 3]))
+                                       to: URL(fileURLWithPath: args[i + 3]),
+                                       fill: args.count > i + 4 ? Double(args[i + 4]) ?? 0.8 : 0.8)
             }
             exit(ok ? 0 : 1)
         }

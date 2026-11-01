@@ -27,6 +27,7 @@ public sealed class EditorWindow : Window
     {
         _c = c;
         Title = "MyOwnEQ";
+        try { Icon = System.Windows.Media.Imaging.BitmapFrame.Create(new Uri("pack://application:,,,/Assets/MyOwnEQ.ico")); } catch { }
         Width = 1150;
         Height = 760;
         MinWidth = 900;
@@ -215,10 +216,26 @@ public sealed class EditorWindow : Window
         }
     }
 
+    /// <summary>Presets are read-only (the core ignores writes to them): the first
+    /// edit turns the draft into "Name (mine)", a new profile, same as on the Mac.</summary>
+    private void ForkIfPreset()
+    {
+        if (_draft is null || !_draft.Tags.Contains("builtin")) return;
+        bool wasActive = _c.ActiveProfile?.Id == _draft.Id;
+        _draft.Id = Profile.NewId();
+        _draft.Name += " (mine)";
+        _draft.Tags.Remove("builtin");
+        _selectedId = _draft.Id;
+        _c.Save(Json.Clone(_draft));
+        if (wasActive) _c.Select(_draft.Id);
+        BuildList();
+    }
+
     /// <summary>Draft edited: audition + debounced save + redraw curve.</summary>
     private void Edited()
     {
         if (_draft is null) return;
+        ForkIfPreset();
         if (_audition) _c.Preview(_draft);
         _c.SaveDebounced(Json.Clone(_draft));
         _curve?.Refresh();
@@ -227,7 +244,9 @@ public sealed class EditorWindow : Window
     private UIElement Header()
     {
         var d = _draft!;
-        var name = new TextBox { Text = d.Name, FontSize = 20, MinWidth = 260, Margin = new Thickness(0, 0, 12, 0) };
+        var name = new TextBox { Text = d.Name, FontSize = 20, MinWidth = 260, Margin = new Thickness(0, 0, 12, 0),
+                                 IsReadOnly = d.Tags.Contains("builtin"),
+                                 ToolTip = d.Tags.Contains("builtin") ? "Presets can't be renamed. Change anything and a copy is made for you." : "Rename" };
         name.TextChanged += (_, _) => { d.Name = name.Text; _c.SaveDebounced(Json.Clone(d)); };
         var audition = new CheckBox { Content = "Audition", IsChecked = _audition, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
                                       ToolTip = "Hear this profile while editing, even if it isn't the active one" };
@@ -240,7 +259,7 @@ public sealed class EditorWindow : Window
     private UIElement CurveFor(bool interactive)
     {
         _curve = new CurveControl(_c, _draft!) { Interactive = interactive, Height = 280, Margin = new Thickness(0, 8, 0, 12), Selected = _selectedBand };
-        _curve.ProfileEdited += () => { if (_draft is not null) { _c.Preview(_draft); _c.SaveDebounced(Json.Clone(_draft)); } };
+        _curve.ProfileEdited += () => { if (_draft is not null) { ForkIfPreset(); _c.Preview(_draft); _c.SaveDebounced(Json.Clone(_draft)); } };
         _curve.SelectionChanged += i => { _selectedBand = i; };
         return _curve;
     }

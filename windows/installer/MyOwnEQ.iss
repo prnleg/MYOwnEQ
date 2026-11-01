@@ -29,6 +29,7 @@ CloseApplications=force
 RestartApplications=no
 AppMutex=MyOwnEQ.SingleInstance
 UninstallDisplayIcon={app}\MyOwnEQ.exe
+SetupIconFile=..\MyOwnEQ\Assets\MyOwnEQ.ico
 UninstallDisplayName=MyOwnEQ
 
 [Tasks]

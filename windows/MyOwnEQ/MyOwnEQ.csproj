@@ -10,6 +10,7 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <RootNamespace>MyOwnEQ</RootNamespace>
     <AssemblyName>MyOwnEQ</AssemblyName>
+    <ApplicationIcon>Assets\MyOwnEQ.ico</ApplicationIcon>
     <Version>0.1.0</Version>
     <Platforms>x64</Platforms>
     <PlatformTarget>x64</PlatformTarget>
@@ -21,6 +22,11 @@
 
   <ItemGroup>
     <PackageReference Include="NAudio.Wasapi" Version="2.2.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Same logo as the Mac app (windows/scripts/make-icon.sh). Window + tray icon. -->
+    <Resource Include="Assets\MyOwnEQ.ico" />
   </ItemGroup>
 
   <!-- Rust core, built by windows/build.ps1 or CI into ../../target/release -->

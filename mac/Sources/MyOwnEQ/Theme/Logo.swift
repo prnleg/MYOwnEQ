@@ -167,11 +167,11 @@ enum LogoRenderer {
     /// Renders the brand icon (Neon Sunset) to a PNG. Used by build-app.sh via
     /// `MyOwnEQ --render-icon <wave|finger> <size> <out.png>`.
     @MainActor
-    static func renderPNG(style: LogoStyle, size: CGFloat, to url: URL) -> Bool {
+    static func renderPNG(style: LogoStyle, size: CGFloat, to url: URL, fill: Double = 0.8) -> Bool {
         let t = Theme.fallback
-        // macOS icon grid: artwork is ~80% of the canvas.
+        // macOS icon grid: artwork is ~80% of the canvas. Windows icons use more.
         let view = LogoMark(style: style, colors: t.curveColors, base: t.baseColor)
-            .frame(width: size * 0.8, height: size * 0.8)
+            .frame(width: size * fill, height: size * fill)
             .frame(width: size, height: size)
         let r = ImageRenderer(content: view)
         r.scale = 1
