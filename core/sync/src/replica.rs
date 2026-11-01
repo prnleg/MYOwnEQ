@@ -193,16 +193,26 @@ mod tests {
         let (mut ra, mut rb) = (Replica::new("mac"), Replica::new("pc"));
         ra.bind_server("s", &la);
         rb.bind_server("s", &lb);
-        // Pristine presets don't get queued.
+        // Presets are never queued.
         assert!(ra.outbox.is_empty());
 
-        // Both edit the same preset offline; B edits later and must win.
+        // A shared profile reaches B first.
+        let shared = myowneq_model::Profile::new("FPS mine");
+        let sid = shared.id;
         let before = snapshot(&la);
-        la.profiles[2].name = "FPS mac".into();
+        la.upsert_profile(shared);
+        ra.record(&before, &snapshot(&la));
+        sync(&mut ra, &mut la, &mut srv);
+        sync(&mut rb, &mut lb, &mut srv);
+        assert!(lb.profile(sid).is_some());
+
+        // Both edit it offline; B edits later and must win.
+        let before = snapshot(&la);
+        la.profile_mut(sid).unwrap().name = "FPS mac".into();
         ra.record(&before, &snapshot(&la));
         std::thread::sleep(std::time::Duration::from_millis(2));
         let before = snapshot(&lb);
-        lb.profiles[2].name = "FPS pc".into();
+        lb.profile_mut(sid).unwrap().name = "FPS pc".into();
         lb.profiles.push(myowneq_model::Profile::new("Only on PC"));
         rb.record(&before, &snapshot(&lb));
 
@@ -211,7 +221,7 @@ mod tests {
             sync(&mut rb, &mut lb, &mut srv);
         }
         assert_eq!(snapshot(&la), snapshot(&lb));
-        assert_eq!(la.profiles[2].name, "FPS pc");
+        assert_eq!(la.profile(sid).unwrap().name, "FPS pc");
         assert!(la.profiles.iter().any(|p| p.name == "Only on PC"));
         assert!(ra.outbox.is_empty() && rb.outbox.is_empty());
     }
@@ -223,7 +233,14 @@ mod tests {
         let (mut ra, mut rb) = (Replica::new("a"), Replica::new("b"));
         ra.bind_server("s", &la);
         rb.bind_server("s", &lb);
-        let id = la.profiles[1].id;
+        let p = myowneq_model::Profile::new("Temp");
+        let id = p.id;
+        let before = snapshot(&la);
+        la.upsert_profile(p);
+        ra.record(&before, &snapshot(&la));
+        sync(&mut ra, &mut la, &mut srv);
+        sync(&mut rb, &mut lb, &mut srv);
+        assert!(lb.profile(id).is_some());
         let before = snapshot(&la);
         la.delete_profile(id);
         ra.record(&before, &snapshot(&la));
@@ -236,12 +253,15 @@ mod tests {
     fn edit_while_in_flight_is_not_lost() {
         let mut r = Replica::new("a");
         let mut lib = Library::with_presets();
+        let mine = myowneq_model::Profile::new("Mine");
+        let id = mine.id;
+        lib.upsert_profile(mine);
         r.seed(&lib, false);
         let s0 = snapshot(&lib);
-        lib.profiles[0].name = "one".into();
+        lib.profile_mut(id).unwrap().name = "one".into();
         let first = r.record(&s0, &snapshot(&lib)).remove(0);
         let s1 = snapshot(&lib);
-        lib.profiles[0].name = "two".into();
+        lib.profile_mut(id).unwrap().name = "two".into();
         let second = r.record(&s1, &snapshot(&lib)).remove(0);
         // Ack of the first (in-flight) version must keep the second queued.
         r.ack(&[Acked {

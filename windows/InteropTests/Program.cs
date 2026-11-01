@@ -17,7 +17,8 @@ using (var core = new CoreBridge(dir, "win-test"))
 {
     core.Command("get_state");
     var s = core.DecodeLast<CoreState>();
-    Check(s is not null && s.Library.Profiles.Count == 7, "decode initial state (7 presets)");
+    Check(s is not null && s.Library.Profiles.Count == 18 && s.Library.Profiles.All(p => p.Tags.Contains("builtin")),
+          "decode initial state (18 presets, all tagged builtin)");
     Check(s!.Library.Profiles.Any(p => p.Eq is ParametricLayer pl && pl.Bands.Count > 0), "polymorphic EqLayer decodes");
 
     var kz = new { uid = "{0.0.0.00000000}.{aaaa-bbbb}", name = "Realtek Speakers", kind = DeviceKind.Analog };
@@ -73,6 +74,17 @@ using (var core = new CoreBridge(dir, "win-test"))
     r = core.Command("update_group", new { group = grp });
     s = core.DecodeLast<CoreState>()!;
     Check(r["ok"]?.GetValue<bool>() == true && s.CurrentGroup!.Favorites.Contains(fps.Id), "update_group (favorites/default)");
+
+    // Boost set elsewhere (Mac) survives a save from Windows.
+    grp = s.CurrentGroup!;
+    grp.BoostDb = 6;
+    core.Command("update_group", new { group = grp });
+    s = core.DecodeLast<CoreState>()!;
+    grp = s.CurrentGroup!;
+    grp.Name = "Renamed on PC";
+    core.Command("update_group", new { group = grp });
+    s = core.DecodeLast<CoreState>()!;
+    Check(s.CurrentGroup!.BoostDb == 6 && s.CurrentGroup.Name == "Renamed on PC", "boost_db round-trips through a Windows save");
 
     r = core.Command("sync_configure", new { config = new { mode = "host", port = 0, token = "ABCD-EFGH" } });
     s = core.DecodeLast<CoreState>()!;

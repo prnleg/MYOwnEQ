@@ -292,6 +292,9 @@ impl Core {
             updater: None,
             last_update_check: None,
         };
+        // Loading heals presets (Library::restore_presets); persist that now
+        // so the file on disk matches what the app shows.
+        core.save_library();
         core.refresh();
         core
     }
@@ -356,6 +359,10 @@ impl Core {
             let bypass = params.bypass;
             params = p.render(&ctx);
             params.bypass = bypass;
+        }
+        // Volume boost of the current device (forces the limiter on).
+        if let Some(g) = self.device.as_ref().and_then(|d| self.lib.group_for(d)) {
+            g.apply_boost(&mut params);
         }
         params.bypass |= !self.enabled;
         self.resolution = res;
@@ -500,6 +507,7 @@ impl Core {
                 g.default_profile = group.default_profile;
                 g.favorites = group.favorites;
                 g.enabled = group.enabled;
+                g.boost_db = group.boost_db.clamp(0.0, myowneq_model::MAX_BOOST_DB);
                 self.save_library();
             }
             UpsertRule { rule } => {
@@ -643,6 +651,7 @@ impl Core {
 
     /// One `Device:` section per connected output, each with the profile its
     /// group resolves to right now (rules, selection, default, preview).
+    /// No volume boost here: Equalizer APO has no limiter, so it would clip.
     fn apo_config(&self) -> String {
         let ctx = RenderContext {
             sample_rate: self.sample_rate,
@@ -837,6 +846,34 @@ mod tests {
         assert_eq!(core.params().band_count, 1);
         cmd(&mut core, json!({"cmd":"preview","profile":null}));
         assert_eq!(core.params().band_count, 0);
+    }
+
+    #[test]
+    fn boost_raises_gain_forces_limiter_and_is_capped() {
+        let mut core = Core::new(None, "m");
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"set_device","device":{"uid":"d","name":"D"}}),
+        );
+        let gid: Id = r["group"].as_str().unwrap().parse().unwrap();
+        let mut flat = Profile::new("flat");
+        flat.limiter = false;
+        cmd(&mut core, json!({"cmd":"preview","profile":flat}));
+        let base = core.params().preamp_db;
+        assert!(!core.params().limiter);
+
+        let mut g = core.lib.group(gid).unwrap().clone();
+        g.boost_db = 6.0;
+        cmd(&mut core, json!({"cmd":"update_group","group":g}));
+        assert!((core.params().preamp_db - base - 6.0).abs() < 1e-9);
+        assert!(core.params().limiter, "boost must force the limiter on");
+
+        g.boost_db = 40.0;
+        cmd(&mut core, json!({"cmd":"update_group","group":g}));
+        assert!(
+            (core.params().preamp_db - base - 12.0).abs() < 1e-9,
+            "capped at +12 dB"
+        );
     }
 
     #[test]

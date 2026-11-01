@@ -12,10 +12,25 @@ struct EditorWindow: View {
     @EnvironmentObject var lang: Lang
     @State private var nav: Nav?
     @State private var search = ""
+    @StateObject private var session = EditSession()
+    /// Copies made from presets map to the editor they came from, so the
+    /// editor (and an in-progress drag) survives the switch to the copy.
+    @State private var forks: [ID: ID] = [:]
+
+    private func editorKey(_ id: ID) -> ID {
+        var k = id
+        while let p = forks[k] { k = p }
+        return k
+    }
+
+    private func go(_ n: Nav?) {
+        guard n != nav else { return }
+        if session.confirmLeave() { nav = n }
+    }
 
     var body: some View {
         NavigationSplitView {
-            Sidebar(nav: $nav, search: $search)
+            Sidebar(nav: Binding(get: { nav }, set: { go($0) }), search: $search)
                 .navigationSplitViewColumnWidth(min: 260, ideal: 290, max: 380)
         } detail: {
             ZStack {
@@ -29,7 +44,11 @@ struct EditorWindow: View {
                     case .appearance: AppearanceSettings()
                     case .profile(let id):
                         if let p = c.state?.profile(id) {
-                            ProfileEditor(original: p).id(p.id)
+                            ProfileEditor(original: p) { new, old in
+                                forks[new] = editorKey(old)
+                                nav = .profile(new)
+                            }
+                            .id(editorKey(p.id))
                         } else { empty }
                     case nil: empty
                     }
@@ -39,6 +58,7 @@ struct EditorWindow: View {
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: nav)
         }
         .id(lang.code) // re-render every text when the language changes; `nav` survives
+        .environmentObject(session)
         .tint(theme.current.accentColor)
         .preferredColorScheme(theme.current.colorScheme)
         .onAppear {
@@ -70,13 +90,15 @@ struct Sidebar: View {
     @EnvironmentObject var theme: ThemeStore
     @Binding var nav: Nav?
     @Binding var search: String
+    @AppStorage("showPresets") private var showPresets = true
 
     var body: some View {
         let s = c.state
         let favIds = Set(s?.currentGroup?.favorites ?? [])
         let all = (s?.library.profiles ?? []).filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }
         let favs = all.filter { favIds.contains($0.id) }
-        let rest = all.filter { !favIds.contains($0.id) }
+        let mine = all.filter { !favIds.contains($0.id) && !$0.isBuiltin }
+        let presets = all.filter { !favIds.contains($0.id) && $0.isBuiltin }
 
         List(selection: $nav) {
             NowPlayingCard()
@@ -87,17 +109,35 @@ struct Sidebar: View {
             if !favs.isEmpty {
                 Section(L("Favorites")) { ForEach(favs) { row($0) } }
             }
-            Section(L("Profiles")) {
-                ForEach(rest) { row($0) }
-                if all.isEmpty {
-                    Text(search.isEmpty ? L("No profiles yet") : L("Nothing matches “%@”", search))
+            Section(L("My Profiles")) {
+                ForEach(mine) { row($0) }
+                if mine.isEmpty {
+                    Text(search.isEmpty ? L("Edit a preset or press + to make your own") : L("Nothing matches “%@”", search))
                         .foregroundStyle(.secondary).font(.callout)
+                }
+            }
+            if !presets.isEmpty {
+                Section {
+                    if showPresets || !search.isEmpty { ForEach(presets) { row($0) } }
+                } header: {
+                    HStack {
+                        Text(L("Presets"))
+                        Spacer()
+                        Button {
+                            withAnimation(.spring(response: 0.3)) { showPresets.toggle() }
+                        } label: {
+                            Image(systemName: "chevron.right")
+                                .rotationEffect(.degrees(showPresets ? 90 : 0))
+                        }
+                        .buttonStyle(.borderless)
+                        .help(showPresets ? L("Hide presets") : L("Show presets"))
+                    }
                 }
             }
             Section(L("Settings")) {
                 Label(L("Devices & Rules"), systemImage: "headphones").tag(Nav.devices)
                 Label(L("Sync & Updates"), systemImage: "arrow.triangle.2.circlepath").tag(Nav.sync)
-                Label(L("Appearance"), systemImage: "paintpalette").tag(Nav.appearance)
+                Label(L("Preferences"), systemImage: "paintpalette").tag(Nav.appearance)
             }
         }
         .listStyle(.sidebar)
@@ -114,6 +154,7 @@ struct Sidebar: View {
             .tag(Nav.profile(p.id))
             .contextMenu {
                 Button(L("Use Now")) { c.select(p.id) }
+                Button(L("Rename…")) { promptRename(p) }.disabled(p.isBuiltin)
                 Button(c.state?.currentGroup?.favorites.contains(p.id) == true ? L("Remove from Favorites") : L("Add to Favorites")) {
                     c.toggleFavorite(p.id)
                 }
@@ -122,6 +163,10 @@ struct Sidebar: View {
                 Divider()
                 Button(L("Delete"), role: .destructive) { c.delete(p.id) }
             }
+    }
+
+    private func promptRename(_ p: Profile) {
+        if let name = askName(L("Rename “%@”", p.name), current: p.name) { c.rename(p.id, to: name) }
     }
 
     private func add() {
@@ -222,16 +267,29 @@ struct NowPlayingCard: View {
 struct ProfileEditor: View {
     @EnvironmentObject var c: AppController
     @EnvironmentObject var theme: ThemeStore
+    @EnvironmentObject var session: EditSession
     let original: Profile
+    /// Called after a preset was copied into a new profile (new id, old id).
+    var onFork: (ID, ID) -> Void = { _, _ in }
     @State private var draft: Profile
+    /// Last version written to the library (to know what's unsaved).
+    @State private var saved: Profile
     @State private var selectedBand: Int?
     @State private var holding = false
     @AppStorage("editorPro") private var pro = false
+    @AppStorage("autoSave") private var autoSave = true
+    @FocusState private var nameFocused: Bool
+    /// Set while adopting an outside change (rename, sync) into the draft.
+    @State private var adopting = false
 
-    init(original: Profile) {
+    init(original: Profile, onFork: @escaping (ID, ID) -> Void = { _, _ in }) {
         self.original = original
+        self.onFork = onFork
         _draft = State(initialValue: original)
+        _saved = State(initialValue: original)
     }
+
+    private var dirty: Bool { draft != saved }
 
     var body: some View {
         let isActive = c.activeProfile?.id == draft.id
@@ -239,15 +297,46 @@ struct ProfileEditor: View {
             VStack(alignment: .leading, spacing: 16) {
                 HStack(alignment: .center, spacing: 12) {
                     VStack(alignment: .leading, spacing: 4) {
-                        TextField(L("Name"), text: $draft.name).textFieldStyle(.plain).font(.system(size: 26, weight: .bold))
+                        HStack(spacing: 8) {
+                            TextField(L("Name"), text: $draft.name).textFieldStyle(.plain).font(.system(size: 26, weight: .bold))
+                                .disabled(draft.isBuiltin)
+                                .focused($nameFocused)
+                                .onSubmit { nameFocused = false }
+                                .fixedSize()
+                            if !draft.isBuiltin {
+                                Button { nameFocused = true } label: {
+                                    Image(systemName: "pencil").font(.title3)
+                                }
+                                .buttonStyle(.borderless)
+                                .foregroundStyle(nameFocused ? AnyShapeStyle(theme.current.accentColor) : AnyShapeStyle(.secondary))
+                                .help(L("Rename"))
+                            }
+                        }
                         HStack(spacing: 6) {
                             if isActive { Tag(text: L("PLAYING"), color: theme.current.accentColor) }
-                            if draft.isBuiltin { Tag(text: L("BUILT-IN"), color: .secondary) }
+                            if draft.isBuiltin { Tag(text: L("PRESET"), color: .secondary) }
                             if let src = draft.correctionSource { Tag(text: "AUTOEQ · \(src.name.uppercased())", color: .secondary) }
                         }
                     }
                     Spacer()
                     PillPicker(selection: $pro, options: [(false, L("Easy")), (true, L("Pro"))])
+                }
+                if draft.isBuiltin {
+                    Label(L("This is a preset. Change anything and a copy is created for you; the preset stays untouched."),
+                          systemImage: "doc.on.doc")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if !autoSave && dirty {
+                    HStack {
+                        Label(L("Unsaved changes"), systemImage: "pencil.circle.fill")
+                            .foregroundStyle(theme.current.accentColor).font(.callout.weight(.semibold))
+                        Spacer()
+                        Button(L("Discard")) { discard() }.buttonStyle(GlowButtonStyle(prominent: false))
+                        Button(L("Save")) { commit() }.buttonStyle(GlowButtonStyle()).keyboardShortcut("s", modifiers: .command)
+                    }
+                    .padding(10)
+                    .background(GlassBackground(radius: 12, highlighted: true))
+                    .transition(.move(edge: .top).combined(with: .opacity))
                 }
                 HStack {
                     if !isActive {
@@ -257,19 +346,19 @@ struct ProfileEditor: View {
                     if isActive {
                         Label(L("In use"), systemImage: "checkmark.circle.fill").foregroundStyle(theme.current.accentColor).font(.callout.weight(.semibold))
                     } else {
-                        Button(L("Use Now")) { withAnimation(.spring) { c.select(draft.id) } }.buttonStyle(GlowButtonStyle())
+                        Button(L("Use Now")) {
+                            if dirty { commit() }
+                            withAnimation(.spring) { c.select(draft.id) }
+                        }.buttonStyle(GlowButtonStyle())
                     }
                 }
 
-                CurveView(profile: $draft, selected: $selectedBand, interactive: pro)
+                CurveView(profile: $draft, selected: $selectedBand, edit: pro ? .pro : .easy)
                     .frame(height: 300)
                     .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .background(GlassBackground(radius: 16))
                     .overlay(alignment: .bottomTrailing) {
-                        if pro, case .parametric = draft.eq {
-                            Text(L("Drag the dots · double-click to add a band"))
-                                .font(.caption2).foregroundStyle(.secondary).padding(10)
-                        }
+                        Text(hint).font(.caption2).foregroundStyle(.secondary).padding(10)
                     }
 
                 Group {
@@ -279,18 +368,114 @@ struct ProfileEditor: View {
             }
             .padding(20)
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: pro)
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: dirty)
         }
         .scrollContentBackground(.hidden)
-        .onChange(of: draft) { _, d in
-            if isActive || holding { c.preview(d) }
-            c.save(d, debounce: true)
-        }
+        .onChange(of: draft) { _, d in changed(d, wasActive: isActive) }
         .onChange(of: holding) { _, on in c.preview(on ? draft : nil) }
         .onChange(of: c.activeProfile?.id) { _, id in
             if id != draft.id, !holding { c.preview(nil) }
         }
-        .onDisappear { c.save(draft); c.preview(nil) }
+        .onAppear(perform: register)
+        .onChange(of: dirty) { _, _ in register() }
+        .onChange(of: autoSave) { _, on in if on && dirty { commit() } }
+        .onChange(of: original) { _, o in
+            // Outside change (sidebar rename, sync from the other machine):
+            // take it, unless we have our own edits waiting to be written.
+            guard o != draft, o.id == draft.id, !dirty, c.pendingSave?.id != draft.id else { return }
+            adopting = true
+            draft = o
+            saved = o
+        }
+        .onDisappear {
+            if autoSave { c.flushSave() } else if dirty, ask(draft.name) == .alertFirstButtonReturn { commit() }
+            c.preview(nil)
+            session.clear()
+        }
     }
+
+    private var hint: String {
+        if !pro { return L("Drag the dots: Bass, Mids, Clarity, Treble") }
+        if case .graphic = draft.eq { return L("Drag the sliders up and down on the graph") }
+        return L("Drag the dots · Option-drag changes Q · double-click adds a band")
+    }
+
+    private func changed(_ d: Profile, wasActive: Bool) {
+        if adopting {
+            adopting = false
+            return
+        }
+        // Editing a preset: copy it into a new profile and keep editing the copy.
+        if d.isBuiltin, d.id == original.id, d != original {
+            var copy = d
+            copy.id = newID()
+            copy.name = L("%@ (mine)", original.name)
+            copy.tags.removeAll { $0 == "builtin" }
+            c.save(copy)
+            saved = copy
+            if wasActive { c.select(copy.id) }
+            draft = copy
+            onFork(copy.id, original.id)
+            return
+        }
+        if c.activeProfile?.id == d.id || holding { c.preview(d) }
+        if autoSave {
+            c.save(d, debounce: true)
+            saved = d
+        }
+    }
+
+    private func commit() {
+        c.save(draft)
+        saved = draft
+    }
+
+    private func discard() {
+        draft = saved
+        if c.activeProfile?.id == draft.id || holding { c.preview(draft) }
+    }
+
+    private func register() {
+        session.dirtyName = (!autoSave && dirty) ? draft.name : nil
+        session.commit = { commit() }
+        session.discard = { discard() }
+    }
+}
+
+/// Lets the window ask "save changes?" before leaving a profile with unsaved edits.
+final class EditSession: ObservableObject {
+    var dirtyName: String?
+    var commit: () -> Void = {}
+    var discard: () -> Void = {}
+
+    func clear() {
+        dirtyName = nil
+        commit = {}
+        discard = {}
+    }
+
+    /// Returns false if the user cancelled.
+    func confirmLeave() -> Bool {
+        guard let name = dirtyName else { return true }
+        switch ask(name, cancel: true) {
+        case .alertFirstButtonReturn: commit()
+        case .alertSecondButtonReturn: discard()
+        default: return false
+        }
+        dirtyName = nil
+        return true
+    }
+}
+
+/// "Save changes to X?" — Save / Don't Save (/ Cancel).
+func ask(_ name: String, cancel: Bool = false) -> NSApplication.ModalResponse {
+    let a = NSAlert()
+    a.messageText = L("Save changes to “%@”?", name)
+    a.informativeText = L("Auto-save is off. Turn it on in Preferences to never see this again.")
+    a.addButton(withTitle: L("Save"))
+    a.addButton(withTitle: L("Don't Save"))
+    if cancel { a.addButton(withTitle: L("Cancel")) }
+    return a.runModal()
 }
 
 struct Tag: View {
@@ -402,4 +587,19 @@ struct HoldToListen: View {
         })
         .help(L("Hear this profile while you hold the button. Use Now switches to it for real."))
     }
+}
+
+/// Small modal text prompt (rename). Returns nil on cancel.
+func askName(_ title: String, current: String) -> String? {
+    let a = NSAlert()
+    a.messageText = title
+    let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+    field.stringValue = current
+    a.accessoryView = field
+    a.addButton(withTitle: L("Rename"))
+    a.addButton(withTitle: L("Cancel"))
+    a.window.initialFirstResponder = field
+    guard a.runModal() == .alertFirstButtonReturn else { return nil }
+    let v = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+    return v.isEmpty ? nil : v
 }

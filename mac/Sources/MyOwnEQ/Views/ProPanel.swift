@@ -5,8 +5,12 @@ private let graphic31: [Double] = [20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 
                                    1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000]
 
 struct ProPanel: View {
+    @EnvironmentObject var c: AppController
     @EnvironmentObject var theme: ThemeStore
     @Binding var profile: Profile
+    /// Parametric bands kept while trying a graphic layout, so going back
+    /// without touching the sliders restores them exactly.
+    @State private var stash: (bands: [Band], graphic: EqLayer)?
     @Binding var selected: Int?
 
     private enum Mode: String, CaseIterable {
@@ -125,18 +129,52 @@ struct ProPanel: View {
         selected = nil
     }
 
+    /// Switching layouts keeps the sound: the current EQ curve is sampled at
+    /// the graphic frequencies, and graphic sliders become peaking bands.
     private func switchMode(_ m: Mode) {
         guard m != mode else { return }
+        let before = profile.eq
         switch m {
         case .parametric:
-            // Keep the sound: graphic points become peaking bands.
-            if case .graphic(let pts) = profile.eq {
-                profile.eq = .parametric(pts.filter { $0.gainDb != 0 }.map { Band(kind: .peak, freq: $0.freq, gainDb: $0.gainDb, q: pts.count > 10 ? 4.3 : 1.41) })
+            guard case .graphic(let pts) = before else { break }
+            if let st = stash, st.graphic == before {
+                profile.eq = .parametric(st.bands) // untouched: exact restore
+            } else {
+                profile.eq = .parametric(pts.filter { $0.gainDb != 0 }.map {
+                    Band(kind: .peak, freq: $0.freq, gainDb: $0.gainDb, q: pts.count > 10 ? 4.3 : 1.41)
+                })
             }
-        case .g10: profile.eq = .graphic(graphic10.map { GraphicPoint(freq: $0, gainDb: 0) })
-        case .g31: profile.eq = .graphic(graphic31.map { GraphicPoint(freq: $0, gainDb: 0) })
+            stash = nil
+        case .g10, .g31:
+            let freqs = m == .g10 ? graphic10 : graphic31
+            let gains = response(of: before, at: freqs)
+            let new = EqLayer.graphic(zip(freqs, gains).map { GraphicPoint(freq: $0, gainDb: min(max(($1 * 2).rounded() / 2, -12), 12)) })
+            if case .parametric(let bands) = before {
+                stash = (bands, new)
+            } else if let st = stash, st.graphic == before {
+                stash = (st.bands, new) // still untouched, keep the way back
+            } else {
+                stash = nil
+            }
+            profile.eq = new
         }
         selected = nil
+    }
+
+    /// Gain (dB) of an EQ layer alone at the given frequencies.
+    private func response(of eq: EqLayer, at freqs: [Double]) -> [Double] {
+        var probe = Profile.new("probe")
+        probe.eq = eq
+        probe.preamp = .manual(0)
+        probe.limiter = false
+        guard let cv = c.curve(for: probe, points: 512), cv.freqs.count > 1 else { return freqs.map { _ in 0 } }
+        return freqs.map { f in
+            guard let hi = cv.freqs.firstIndex(where: { $0 >= f }) else { return cv.total.last ?? 0 }
+            guard hi > 0 else { return cv.total[0] }
+            let lo = hi - 1
+            let t = log(f / cv.freqs[lo]) / log(cv.freqs[hi] / cv.freqs[lo])
+            return cv.total[lo] + (cv.total[hi] - cv.total[lo]) * t
+        }
     }
 }
 

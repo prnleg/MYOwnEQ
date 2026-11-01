@@ -10,7 +10,12 @@ pub type Snapshot = BTreeMap<String, Value>;
 
 pub fn snapshot(lib: &Library) -> Snapshot {
     let mut m = Snapshot::new();
-    for p in &lib.profiles {
+    // Presets are identical everywhere and read-only: never synced.
+    for p in lib
+        .profiles
+        .iter()
+        .filter(|p| !myowneq_model::presets::is_preset(p.id))
+    {
         m.insert(
             format!("profile:{}", p.id),
             serde_json::to_value(p).expect("profile json"),
@@ -86,6 +91,9 @@ pub fn apply(lib: &mut Library, key: &str, value: Option<&Value>) -> Result<(), 
         .transpose()
     }
     match kind {
+        // Presets are read-only everywhere: a remote (possibly older, buggy)
+        // app can't change or delete them.
+        "profile" if myowneq_model::presets::is_preset(id) => {}
         "profile" => upsert(&mut lib.profiles, id, |p| p.id, parse(key, value)?),
         "group" => upsert(&mut lib.groups, id, |g| g.id, parse(key, value)?),
         "rule" => upsert(&mut lib.rules, id, |r| r.id, parse(key, value)?),
@@ -108,14 +116,31 @@ mod tests {
     use myowneq_model::Profile;
 
     #[test]
+    fn remote_cannot_change_or_delete_presets() {
+        let mut lib = Library::with_presets();
+        let flat = lib.profiles[0].clone();
+        let mut evil = flat.clone();
+        evil.name = "hacked".into();
+        let key = format!("profile:{}", flat.id);
+        apply(&mut lib, &key, Some(&serde_json::to_value(&evil).unwrap())).unwrap();
+        assert_eq!(lib.profiles[0], flat);
+        apply(&mut lib, &key, None).unwrap();
+        assert_eq!(lib.profiles[0], flat);
+    }
+
+    #[test]
     fn diff_and_apply_roundtrip() {
-        let a = Library::with_presets();
+        let mut a = Library::with_presets();
+        let (u1, u2) = (Profile::new("One"), Profile::new("Two"));
+        let (id1, id2) = (u1.id, u2.id);
+        a.upsert_profile(u1);
+        a.upsert_profile(u2);
         let mut b = a.clone();
-        b.profiles[0].name = "Renamed".into();
-        b.profiles.remove(1);
+        b.profile_mut(id1).unwrap().name = "Renamed".into();
+        b.delete_profile(id2);
         b.profiles.push(Profile::new("New"));
         let gid = myowneq_model::new_id();
-        b.selected.insert(gid, b.profiles[0].id);
+        b.selected.insert(gid, id1);
 
         let changes = diff(&snapshot(&a), &snapshot(&b));
         assert_eq!(changes.len(), 4);

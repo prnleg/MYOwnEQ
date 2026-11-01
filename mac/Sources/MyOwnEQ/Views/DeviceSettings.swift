@@ -12,6 +12,10 @@ struct DeviceSettings: View {
                 Section(L("Device")) {
                     TextField(L("Name"), text: Binding(get: { g.name }, set: { var n = g; n.name = $0; c.updateGroup(n) }))
                     Toggle(L("EQ enabled for this device"), isOn: Binding(get: { g.enabled }, set: { var n = g; n.enabled = $0; c.updateGroup(n) }))
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(L("Volume & boost")).font(.callout.weight(.semibold))
+                        VolumeCard(compact: false)
+                    }
                     Picker(L("Default profile"), selection: Binding(get: { g.defaultProfile }, set: { var n = g; n.defaultProfile = $0; c.updateGroup(n) })) {
                         Text(L("None (flat)")).tag(ID?.none)
                         ForEach(s.library.profiles) { Text($0.name).tag(Optional($0.id)) }

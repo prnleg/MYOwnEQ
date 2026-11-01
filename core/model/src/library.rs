@@ -87,7 +87,25 @@ impl Library {
                 found: probe.schema,
             });
         }
-        Ok(serde_json::from_str(s)?)
+        let mut lib: Library = serde_json::from_str(s)?;
+        lib.restore_presets();
+        Ok(lib)
+    }
+
+    /// Rewrite every preset from its definition (healing any stored change),
+    /// add presets new in this version, and make sure no user profile
+    /// pretends to be a preset. Presets come first, in display order.
+    pub fn restore_presets(&mut self) {
+        let mut user: Vec<Profile> = self
+            .profiles
+            .drain(..)
+            .filter(|p| !crate::presets::is_preset(p.id))
+            .collect();
+        for p in &mut user {
+            p.tags.retain(|t| t != "builtin");
+        }
+        self.profiles = crate::presets::builtin();
+        self.profiles.extend(user);
     }
 
     pub fn to_json(&self) -> Result<String, LibraryError> {
@@ -119,7 +137,11 @@ impl Library {
         self.profiles.iter_mut().find(|p| p.id == id)
     }
 
+    /// Presets are read-only: writes to a preset id are ignored.
     pub fn upsert_profile(&mut self, profile: Profile) {
+        if crate::presets::is_preset(profile.id) {
+            return;
+        }
         match self.profile_mut(profile.id) {
             Some(p) => *p = profile,
             None => self.profiles.push(profile),
@@ -127,7 +149,11 @@ impl Library {
     }
 
     /// Remove a profile and every reference to it.
+    /// Presets can't be deleted.
     pub fn delete_profile(&mut self, id: Id) {
+        if crate::presets::is_preset(id) {
+            return;
+        }
         self.profiles.retain(|p| p.id != id);
         for g in &mut self.groups {
             if g.default_profile == Some(id) {
@@ -312,6 +338,7 @@ impl Library {
 mod tests {
     use super::*;
     use crate::device::DeviceKind;
+    use crate::profile::EqLayer;
     use crate::rules::{AppMatch, Trigger};
 
     fn key(machine: &str, uid: &str) -> DeviceKey {
@@ -453,11 +480,52 @@ mod tests {
     }
 
     #[test]
+    fn presets_are_read_only_and_heal_on_load() {
+        use crate::presets::{builtin, is_preset};
+        let mut lib = Library::with_presets();
+        let fps = lib
+            .profiles
+            .iter()
+            .find(|p| p.name == "FPS")
+            .unwrap()
+            .clone();
+
+        // Writes and deletes to a preset are ignored.
+        let mut broken = fps.clone();
+        broken.eq = EqLayer::Parametric { bands: vec![] };
+        lib.upsert_profile(broken.clone());
+        lib.delete_profile(fps.id);
+        assert_eq!(lib.profile(fps.id), Some(&fps));
+
+        // A damaged file (old bug / old app) is healed on load, and a user
+        // profile carrying the "builtin" tag loses it.
+        let mut json: serde_json::Value = serde_json::from_str(&lib.to_json().unwrap()).unwrap();
+        let profiles = json["profiles"].as_array_mut().unwrap();
+        let i = profiles.iter().position(|p| p["name"] == "FPS").unwrap();
+        profiles[i] = serde_json::to_value(&broken).unwrap();
+        let mut fake = Profile::new("Not a preset");
+        fake.tags = vec!["builtin".into()];
+        profiles.push(serde_json::to_value(&fake).unwrap());
+        profiles.retain(|p| p["name"] != "Movie"); // missing preset comes back too
+        let healed = Library::from_json(&json.to_string()).unwrap();
+        assert_eq!(healed.profile(fps.id), Some(&fps));
+        assert!(healed.profiles.iter().any(|p| p.name == "Movie"));
+        let f = healed.profile(fake.id).unwrap();
+        assert!(f.tags.is_empty() && !is_preset(f.id));
+        assert_eq!(
+            healed.profiles.iter().filter(|p| is_preset(p.id)).count(),
+            builtin().len()
+        );
+    }
+
+    #[test]
     fn delete_profile_cleans_references() {
         let mut lib = Library::with_presets();
         let mut local = LocalState::new(MachineId("m".into()));
         let g = lib.ensure_device(member("m", "d", "D"));
-        let fps = named(&lib, "FPS");
+        let mine = Profile::new("My FPS");
+        let fps = mine.id;
+        lib.upsert_profile(mine);
         lib.group_mut(g).unwrap().default_profile = Some(fps);
         lib.group_mut(g).unwrap().favorites.push(fps);
         lib.select(g, fps, None, &mut local);

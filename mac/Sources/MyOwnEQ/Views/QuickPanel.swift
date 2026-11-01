@@ -33,11 +33,16 @@ struct QuickPanel: View {
             }
 
             nowPlaying
+            VolumeCard().padding(12).background(GlassBackground(radius: 14))
             favorites
             if c.activeProfile != nil {
                 EasyKnobs(draft: $draft).padding(12).background(GlassBackground(radius: 14))
             }
             footer
+            if let dev = AppController.devBuild {
+                Label(L("Test build · %@", dev), systemImage: "hammer.fill")
+                    .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
+            }
             if let m = c.lastMessage {
                 Text(m).font(.caption).foregroundStyle(.secondary).transition(.opacity)
             }
@@ -99,7 +104,7 @@ struct QuickPanel: View {
                 }
             }
             if let p = draft ?? c.activeProfile {
-                CurveView(profile: .constant(p), selected: .constant(nil), interactive: false, compact: true)
+                CurveView(profile: .constant(p), selected: .constant(nil), edit: .none, compact: true)
                     .frame(height: 74)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
             }
@@ -181,8 +186,18 @@ struct EasyKnobs: View {
                     c.preview(d)
                 }
             ), range: -12...12, step: 0.5) { editing in
-                if !editing, let d = draft {
-                    c.save(d)
+                if !editing, var d = draft {
+                    if d.isBuiltin {
+                        // Presets never change: the tweak becomes a new profile.
+                        let base = d.name
+                        d.id = newID()
+                        d.name = L("%@ (mine)", base)
+                        d.tags.removeAll { $0 == "builtin" }
+                        c.save(d)
+                        c.select(d.id)
+                    } else {
+                        c.save(d)
+                    }
                     c.preview(nil)
                     draft = nil
                 }

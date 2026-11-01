@@ -43,8 +43,11 @@ final class CoreBridge {
     /// Raw bytes of the last reply (to decode typed values without re-serializing).
     private(set) var lastReply = Data()
 
+    private(set) var lastDecodeError: String?
+
     func decodeLast<T: Decodable>(_ type: T.Type) -> T? {
         do { return try decoder.decode(T.self, from: lastReply) } catch {
+            lastDecodeError = "\(error)"
             NSLog("MyOwnEQ decode \(T.self) failed: \(error)")
             return nil
         }

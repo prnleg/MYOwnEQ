@@ -10,6 +10,9 @@ final class AppController: ObservableObject {
     @Published private(set) var engineError: String?
     @Published private(set) var engineRunning = false
     @Published var lastMessage: String?
+    /// Main volume of the current output (0…1), nil when it has none.
+    @Published private(set) var volume: Double?
+    @Published private(set) var volumeSettable = false
 
     let core: CoreBridge
     private let engine = TapEngine()
@@ -36,13 +39,17 @@ final class AppController: ObservableObject {
         appWatcher?.fire()
         // Updates: configure, and if a verified update is already waiting from
         // the last session, this launch is the "restart": install it now.
-        updateReply(core.command("update_configure", ["version": Self.appVersion, "platform": "mac"]))
-        if update?.isReady == true, update?.auto != false {
-            installUpdateAndQuit()
-            return
-        }
-        updateTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.updateReply(self?.core.command("update_tick") ?? [:]) }
+        // Dev builds (build-app.sh --native/--run) never self-update: they share
+        // the data folder with the installed app and would install its update.
+        if Self.devBuild == nil {
+            updateReply(core.command("update_configure", ["version": Self.appVersion, "platform": "mac"]))
+            if update?.isReady == true, update?.auto != false {
+                installUpdateAndQuit()
+                return
+            }
+            updateTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.updateReply(self?.core.command("update_tick") ?? [:]) }
+            }
         }
         // Poll sync a few times per second (cheap no-op when sync is off).
         syncTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
@@ -53,7 +60,7 @@ final class AppController: ObservableObject {
                 guard let self else { return }
                 self.engine.stop()
                 // "Install on restart": quitting with a ready update installs it.
-                if self.update?.isReady == true, self.update?.auto != false {
+                if Self.devBuild == nil, self.update?.isReady == true, self.update?.auto != false {
                     self.core.command("update_apply", ["app_path": Bundle.main.bundlePath])
                 }
             }
@@ -67,8 +74,13 @@ final class AppController: ObservableObject {
             lastMessage = reply["error"] as? String
             return
         }
-        if reply["library"] != nil, let s = core.decodeLast(CoreState.self) {
-            state = s
+        if reply["library"] != nil {
+            if let s = core.decodeLast(CoreState.self) {
+                state = s
+            } else {
+                // Never fail silently: an empty UI here looks like lost data.
+                lastMessage = L("Couldn't read the profile library (%@). Please report this bug.", core.lastDecodeError ?? "?")
+            }
         }
     }
 
@@ -87,9 +99,11 @@ final class AppController: ObservableObject {
             apply(core.command("set_device", ["device": newCurrent.map(Self.deviceJSON) as Any]))
             restartEngine()
         }
-        if let dev = current, let vol = CA.volume(dev.id) {
-            core.command("set_volume", ["volume": vol])
-        }
+        let vol = current.flatMap { CA.volume($0.id) }
+        if let vol { core.command("set_volume", ["volume": vol]) }
+        if volume != vol { volume = vol }
+        let settable = current.map { CA.volumeSettable($0.id) } ?? false
+        if volumeSettable != settable { volumeSettable = settable }
         reload()
     }
 
@@ -122,6 +136,28 @@ final class AppController: ObservableObject {
 
     // MARK: - user actions
 
+    /// Change the system volume of the current output.
+    func setVolume(_ v: Double) {
+        guard let dev = current, CA.setVolume(dev.id, v) else { return }
+        volume = v
+        core.command("set_volume", ["volume": v])
+    }
+
+    /// Set the current device's boost (dB). Saved and synced with linked devices.
+    func setBoost(_ db: Double) {
+        guard var g = state?.currentGroup else { return }
+        g.boostDb = min(max(db, 0), 12)
+        updateGroup(g)
+    }
+
+    /// Rename a profile (presets can't be renamed).
+    func rename(_ id: ID, to name: String) {
+        let n = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !n.isEmpty, var p = state?.profile(id), !p.isBuiltin else { return }
+        p.name = n
+        save(p)
+    }
+
     func setEnabled(_ on: Bool) {
         apply(core.command("set_enabled", ["enabled": on]))
         restartEngine()
@@ -136,14 +172,25 @@ final class AppController: ObservableObject {
     func save(_ profile: Profile, debounce: Bool = false) {
         saveTask?.cancel()
         guard debounce else {
+            pendingSave = nil
             apply(core.command("upsert_profile", ["profile": profile]))
             return
         }
+        pendingSave = profile
         saveTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(400))
-            guard !Task.isCancelled else { return }
-            self?.apply(self?.core.command("upsert_profile", ["profile": profile]) ?? [:])
+            guard !Task.isCancelled, let self, let p = self.pendingSave else { return }
+            self.pendingSave = nil
+            self.apply(self.core.command("upsert_profile", ["profile": p]))
         }
+    }
+
+    /// A debounced save not written yet.
+    private(set) var pendingSave: Profile?
+
+    /// Write a pending debounced save now (e.g. when the editor closes).
+    func flushSave() {
+        if let p = pendingSave { save(p) }
     }
 
     func delete(_ profile: ID) { apply(core.command("delete_profile", ["id": profile])) }
@@ -257,6 +304,16 @@ final class AppController: ObservableObject {
         Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
     }
 
+    /// "dev 01/11 13:05:22" for local test builds, nil for releases.
+    static var devBuild: String? {
+        Bundle.main.object(forInfoDictionaryKey: "MyOwnEQBuild") as? String
+    }
+
+    /// Version as shown in the UI, with the build time on dev builds.
+    static var displayVersion: String {
+        devBuild.map { "\(appVersion) (\($0))" } ?? appVersion
+    }
+
     private func updateReply(_ r: [String: Any]) {
         guard let u = r["update"], let d = try? JSONSerialization.data(withJSONObject: u) else { return }
         let dec = JSONDecoder()
@@ -265,6 +322,10 @@ final class AppController: ObservableObject {
     }
 
     func checkForUpdates() {
+        guard Self.devBuild == nil else {
+            lastMessage = L("Test build: updates are off. Install a release to get updates.")
+            return
+        }
         updateReply(core.command("update_check"))
         // Status flips to ready asynchronously; poll briefly.
         for delay in [2.0, 6.0, 15.0, 40.0] {

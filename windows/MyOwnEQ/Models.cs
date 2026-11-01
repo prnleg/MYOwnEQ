@@ -135,6 +135,9 @@ public sealed class DeviceGroup
     public string? DefaultProfile { get; set; }
     public List<string> Favorites { get; set; } = new();
     public bool Enabled { get; set; } = true;
+    /// Volume boost in dB (set on the Mac; Equalizer APO has no limiter, so
+    /// Windows doesn't apply it). Must round-trip so saving here keeps it.
+    public double BoostDb { get; set; }
 }
 
 public sealed class AppMatch

@@ -49,3 +49,5 @@ jobs:
             echo "::error::TAIL $(tail -12 build.log | tr '\n' '|')"
             exit 1
           }
+      - name: App reads sparse library JSON (every optional field missing)
+        run: mac/build/MyOwnEQ.app/Contents/MacOS/MyOwnEQ --check-library mac/Tests/fixtures/library-sparse.json

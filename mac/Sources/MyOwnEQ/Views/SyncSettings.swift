@@ -100,7 +100,7 @@ struct SyncSettings: View {
                             .disabled(c.update?.state == "checking" || c.update?.state == "downloading")
                     }
                 }
-                LabeledContent(L("Version"), value: AppController.appVersion)
+                LabeledContent(L("Version"), value: AppController.displayVersion)
             }
 
             Section(L("This Mac")) {

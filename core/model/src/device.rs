@@ -55,6 +55,24 @@ pub struct DeviceGroup {
     /// When false, EQ is bypassed for this device.
     #[serde(default = "default_true")]
     pub enabled: bool,
+    /// Extra output gain in dB (0..=MAX_BOOST_DB) on top of the profile.
+    /// Forces the limiter on, so it can get louder but never clip.
+    #[serde(default)]
+    pub boost_db: f64,
+}
+
+/// Highest volume boost allowed, in dB.
+pub const MAX_BOOST_DB: f64 = 12.0;
+
+impl DeviceGroup {
+    /// Apply this device's boost to rendered params (limiter forced on).
+    pub fn apply_boost(&self, p: &mut myowneq_dsp::EqParams) {
+        let b = self.boost_db.clamp(0.0, MAX_BOOST_DB);
+        if b > 0.0 {
+            p.preamp_db += b;
+            p.limiter = true;
+        }
+    }
 }
 
 fn default_true() -> bool {
@@ -70,6 +88,7 @@ impl DeviceGroup {
             default_profile: None,
             favorites: Vec::new(),
             enabled: true,
+            boost_db: 0.0,
         }
     }
 

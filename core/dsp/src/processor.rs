@@ -22,6 +22,12 @@ const FADE_SECS: f64 = 0.02;
 const LIMIT_CEILING: f64 = 0.988_553_1;
 /// Limiter release time constant (seconds).
 const LIMIT_RELEASE: f64 = 0.08;
+/// Limiter lookahead (seconds): gain starts dropping this long before a peak,
+/// so heavy limiting (e.g. with volume boost) stays smooth instead of
+/// slicing each peak in one sample. Adds this much latency while on.
+const LIMIT_LOOKAHEAD: f64 = 0.001;
+/// Lookahead buffer capacity in frames (1 ms up to 256 kHz).
+const MAX_LOOKAHEAD: usize = 256;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Shape {
@@ -85,6 +91,14 @@ pub struct Processor {
     smooth_k: f64,
     fade_step: f64,
     release_k: f64,
+    attack_k: f64,
+    /// Lookahead delay line (per channel) and the gain each frame needs.
+    la_buf: [[f32; MAX_LOOKAHEAD]; MAX_CHANNELS],
+    la_want: [f64; MAX_LOOKAHEAD],
+    la_len: usize,
+    la_pos: usize,
+    /// Whether the lookahead path was active last block (to reset on toggle).
+    la_on: bool,
 }
 
 impl Processor {
@@ -102,6 +116,12 @@ impl Processor {
             smooth_k: 0.0,
             fade_step: 0.0,
             release_k: 0.0,
+            attack_k: 0.0,
+            la_buf: [[0.0; MAX_LOOKAHEAD]; MAX_CHANNELS],
+            la_want: [1.0; MAX_LOOKAHEAD],
+            la_len: 1,
+            la_pos: 0,
+            la_on: false,
         };
         p.set_sample_rate(sample_rate);
         p.snap_to_target();
@@ -122,6 +142,9 @@ impl Processor {
         self.smooth_k = 1.0 - (-(SUB_BLOCK as f64) / (SMOOTH_TAU * sample_rate)).exp();
         self.fade_step = SUB_BLOCK as f64 / (FADE_SECS * sample_rate);
         self.release_k = 1.0 - (-1.0 / (LIMIT_RELEASE * sample_rate)).exp();
+        self.la_len = ((LIMIT_LOOKAHEAD * sample_rate).round() as usize).clamp(1, MAX_LOOKAHEAD);
+        // Reach ~99% of the needed reduction within the lookahead window.
+        self.attack_k = 1.0 - (-5.0 / self.la_len as f64).exp();
         for s in &mut self.slots {
             if s.active {
                 s.coeffs = Coeffs::design(&s.cur.to_band(s.kind), sample_rate);
@@ -145,6 +168,15 @@ impl Processor {
             }
         }
         self.limiter_gain = 1.0;
+        self.reset_lookahead();
+    }
+
+    fn reset_lookahead(&mut self) {
+        for ch in &mut self.la_buf {
+            ch.fill(0.0);
+        }
+        self.la_want.fill(1.0);
+        self.la_pos = 0;
     }
 
     /// Jump straight to target values (no smoothing). Used at startup.
@@ -353,13 +385,23 @@ impl Processor {
         }
 
         if self.target.limiter {
+            if !self.la_on {
+                self.reset_lookahead();
+                self.la_on = true;
+            }
             self.limit(buf, channels, nch);
         } else {
             self.limiter_gain = 1.0;
+            self.la_on = false;
         }
     }
 
+    /// Lookahead peak limiter. Each frame is delayed by `la_len`; the gain
+    /// applied to the frame leaving the delay is driven by the lowest gain any
+    /// frame inside the window needs, so it ramps down before a peak arrives.
+    /// A final clamp guarantees the ceiling even if the ramp falls short.
     fn limit(&mut self, buf: &mut [f32], channels: usize, nch: usize) {
+        let len = self.la_len;
         let mut g = self.limiter_gain;
         for frame in buf.chunks_exact_mut(channels) {
             let peak = frame[..nch]
@@ -370,16 +412,22 @@ impl Processor {
             } else {
                 1.0
             };
-            if want < g {
-                g = want; // instant attack
+            let pos = self.la_pos;
+            // Window = frames t-len (leaving now) ..= t (just arrived).
+            let req = self.la_want[..len].iter().fold(want, |m, &w| m.min(w));
+            self.la_want[pos] = want;
+            if req < g {
+                g += (req - g) * self.attack_k;
             } else {
-                g += (want - g) * self.release_k;
+                g += (req - g) * self.release_k;
             }
-            if g < 1.0 {
-                for s in &mut frame[..nch] {
-                    *s = ((*s as f64) * g) as f32;
-                }
+            for (ch, s) in frame[..nch].iter_mut().enumerate() {
+                let delayed = self.la_buf[ch][pos];
+                self.la_buf[ch][pos] = *s;
+                let out = (delayed as f64 * g).clamp(-LIMIT_CEILING, LIMIT_CEILING);
+                *s = out as f32;
             }
+            self.la_pos = if pos + 1 == len { 0 } else { pos + 1 };
         }
         self.limiter_gain = g;
     }
@@ -473,6 +521,36 @@ mod tests {
         p.limiter = true;
         let mut proc = Processor::new(SR, p);
         let mut buf = sine(1000.0, 1.0, 48_000, 2);
+        proc.process(&mut buf, 2);
+        assert!(buf.iter().all(|s| s.abs() as f64 <= LIMIT_CEILING + 1e-6));
+    }
+
+    #[test]
+    fn boosted_signal_is_limited_smoothly() {
+        // +12 dB on a loud sine: never above the ceiling, and the gain
+        // settles instead of chopping each peak (output stays a clean sine:
+        // its peak hugs the ceiling with little ripple once settled).
+        let mut p = EqParams::from_bands(&[]);
+        p.preamp_db = 12.0;
+        p.limiter = true;
+        let mut proc = Processor::new(SR, p);
+        let mut buf = sine(200.0, 0.8, 48_000, 2);
+        proc.process(&mut buf, 2);
+        assert!(buf.iter().all(|s| s.abs() as f64 <= LIMIT_CEILING + 1e-6));
+        let settled = peak_db(&buf, 2, 0, 24_000);
+        assert!(settled > -1.5 && settled <= 0.0, "{settled}");
+    }
+
+    #[test]
+    fn transient_after_silence_never_clips() {
+        let mut p = EqParams::from_bands(&[]);
+        p.preamp_db = 12.0;
+        p.limiter = true;
+        let mut proc = Processor::new(SR, p);
+        let mut buf = vec![0.0f32; 9600];
+        for (i, s) in buf.iter_mut().enumerate().skip(4800) {
+            *s = if (i / 2) % 40 < 20 { 0.9 } else { -0.9 };
+        }
         proc.process(&mut buf, 2);
         assert!(buf.iter().all(|s| s.abs() as f64 <= LIMIT_CEILING + 1e-6));
     }

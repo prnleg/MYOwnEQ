@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "profiles": [
+    { "id": "p1", "name": "Preset", "tags": ["builtin"],
+      "eq": { "type": "parametric", "bands": [ { "kind": "peak", "freq": 1000, "gain_db": 3, "q": 1, "enabled": true } ] },
+      "macros": { "bass": 0, "mids": 0, "clarity": 0, "treble": 0 }, "preamp": { "mode": "auto" },
+      "balance": 0, "limiter": true, "loudness": 0, "correction": [] },
+    { "id": "p2", "name": "User profile, no tags (Rust skips empty tags)",
+      "eq": { "type": "parametric", "bands": [] },
+      "macros": { "bass": 1 }, "preamp": { "mode": "manual", "db": -3 } },
+    { "id": "p3", "name": "Only the required fields" },
+    { "id": "p4", "name": "Graphic", "eq": { "type": "graphic", "points": [ { "freq": 1000, "gain_db": 2 } ] },
+      "correction": [ { "kind": "low_shelf", "freq": 100 } ],
+      "correction_source": { "provider": "AutoEQ", "name": "Test" } }
+  ],
+  "groups": [
+    { "id": "g1", "name": "Headphones", "members": [ { "key": { "machine": "m1", "uid": "u1" }, "os_name": "KZ" } ] }
+  ],
+  "rules": [
+    { "id": "r1", "group": "g1", "app": { "name": "CS2", "win_exe": "cs2.exe" }, "profile": "p2" }
+  ]
+}

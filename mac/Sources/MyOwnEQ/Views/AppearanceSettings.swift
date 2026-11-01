@@ -3,11 +3,21 @@ import SwiftUI
 struct AppearanceSettings: View {
     @EnvironmentObject var theme: ThemeStore
     @EnvironmentObject var lang: Lang
+    @AppStorage("autoSave") private var autoSave = true
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                PageHeader(title: L("Appearance"), subtitle: L("Language, themes, logo and motion"), icon: "paintpalette.fill")
+                PageHeader(title: L("Preferences"), subtitle: L("Editing, language, themes, logo and motion"), icon: "gearshape.fill")
+
+                Card(title: L("Editing"), icon: "square.and.pencil") {
+                    Toggle(L("Auto-save profile changes"), isOn: $autoSave).toggleStyle(.switch)
+                    Text(autoSave ? L("Every change is saved as you go.")
+                                  : L("Changes wait for Save (⌘S). You'll be asked before leaving a profile with unsaved changes."))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(L("Editing a preset always creates a copy, so presets never change."))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
 
                 Card(title: L("Language"), icon: "globe") {
                     HStack {

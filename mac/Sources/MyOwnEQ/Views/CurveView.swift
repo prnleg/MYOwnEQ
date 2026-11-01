@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 /// Per-frame animation state for the curve. Lives outside SwiftUI's diffing
@@ -12,6 +13,11 @@ final class CurveAnim {
     var ripples: [(pt: CGPoint, t0: Double, color: Color)] = []
     var lastT: Double = 0
     var lastEmptyClick: (t: Double, pt: CGPoint)?
+    /// Response curve for `curveFor` at `curveRate`, fetched from the core
+    /// inside the draw pass, so it never waits on onAppear/onChange timing.
+    var curve: Curve?
+    var curveFor: Profile?
+    var curveRate: Double?
 
     /// Damped spring toward `target`. k = stiffness, c = damping.
     static func spring(_ x: inout [Double], _ v: inout [Double], to target: [Double], k: Double, c: Double, dt: Double, snap: Bool) {
@@ -36,50 +42,91 @@ final class CurveAnim {
 }
 
 /// Frequency-response curve over the live spectrum. Springs between states,
-/// glows with the music, shimmers, and gives tactile feedback when a band
-/// handle is grabbed: it grows, ripples and shows exactly what moved.
+/// glows with the music, shimmers, and is directly editable:
+/// - Pro, parametric: drag band dots (Option-drag = Q), double-click adds a band.
+/// - Pro, graphic: drag each slider up/down right on the graph.
+/// - Easy: four dots — Bass, Mids, Clarity, Treble — dragged up/down.
 struct CurveView: View {
+    enum Edit { case none, easy, pro }
+
     @EnvironmentObject var c: AppController
     @EnvironmentObject var theme: ThemeStore
     @Binding var profile: Profile
     @Binding var selected: Int?
-    var interactive = true
+    var edit: Edit = .pro
     var compact = false
 
-    @State private var curve: Curve?
+    /// Bumped once after appearing to guarantee a fresh draw.
+    @State private var kick = 0
     @State private var dragging: Int?
-    @State private var dragStart: Band?
+    @State private var dragStart: (profile: Profile, qMode: Bool, pt: CGPoint)?
     @State private var hover: Int?
     @State private var anim = CurveAnim()
 
     private static let fMin = 20.0, fMax = 20_000.0
+
+    private struct Handle {
+        enum Kind {
+            case band(Int)
+            case point(Int)
+            case macro(WritableKeyPath<Macros, Double>, String)
+        }
+        var kind: Kind
+        var pt: CGPoint
+        var enabled = true
+        var bandIndex: Int? { if case .band(let i) = kind { return i }; return nil }
+    }
+
+    private static let macroSpots: [(WritableKeyPath<Macros, Double>, String, Double)] = [
+        (\.bass, "Bass", 105), (\.mids, "Mids", 1000), (\.clarity, "Clarity", 3000), (\.treble, "Treble", 8000),
+    ]
 
     var body: some View {
         GeometryReader { geo in
             TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { tl in
                 Canvas { ctx, size in
                     let now = tl.date.timeIntervalSinceReferenceDate
+                    _ = kick
                     SpectrumFeed.shared.update(c, now: tl.date)
+                    refreshCurve()
                     advance(now: now, size: size)
                     draw(ctx: ctx, size: size, now: now)
                 }
             }
             .contentShape(Rectangle())
-            .gesture(interactive ? drag(size: geo.size) : nil)
+            .gesture(edit != .none ? drag(size: geo.size) : nil)
             .onContinuousHover { phase in
-                guard interactive, dragging == nil else { return }
+                guard edit != .none, dragging == nil else { return }
                 if case .active(let p) = phase { hover = hit(p, geo.size) } else { hover = nil }
             }
         }
-        .onAppear { curve = c.curve(for: profile) }
-        .onChange(of: profile) { _, p in curve = c.curve(for: p) }
-        .onChange(of: c.state?.sampleRate) { _, _ in curve = c.curve(for: profile) }
+        .onAppear {
+            refreshCurve()
+            DispatchQueue.main.async { kick += 1 }
+        }
+    }
+
+    private var curve: Curve? { anim.curve }
+
+    private func refreshCurve() {
+        let rate = c.state?.sampleRate
+        guard anim.curve == nil || anim.curveFor != profile || anim.curveRate != rate else { return }
+        if let cv = c.curve(for: profile) {
+            anim.curve = cv
+            anim.curveFor = profile
+            anim.curveRate = rate
+        }
     }
 
     // MARK: - geometry
 
     private var bands: [Band] {
         if case .parametric(let b) = profile.eq { return b }
+        return []
+    }
+
+    private var points: [GraphicPoint] {
+        if case .graphic(let p) = profile.eq { return p }
         return []
     }
 
@@ -107,14 +154,35 @@ struct CurveView: View {
         Double((h / 2 - y) / (h / 2 - pad)) * anim.range
     }
 
-    private func handle(_ b: Band, _ size: CGSize) -> CGPoint {
-        CGPoint(x: x(b.freq, size.width), y: y(b.kind.hasGain ? b.gainDb : 0, size.height))
+    private func handles(_ size: CGSize) -> [Handle] {
+        switch edit {
+        case .none: return []
+        case .easy:
+            return Self.macroSpots.map { kp, name, f in
+                Handle(kind: .macro(kp, name), pt: CGPoint(x: x(f, size.width), y: y(profile.macros[keyPath: kp], size.height)))
+            }
+        case .pro:
+            switch profile.eq {
+            case .parametric(let bs):
+                return bs.enumerated().map { i, b in
+                    Handle(kind: .band(i), pt: CGPoint(x: x(b.freq, size.width), y: y(b.kind.hasGain ? b.gainDb : 0, size.height)),
+                           enabled: b.enabled)
+                }
+            case .graphic(let ps):
+                return ps.enumerated().map { i, p in
+                    Handle(kind: .point(i), pt: CGPoint(x: x(p.freq, size.width), y: y(p.gainDb, size.height)))
+                }
+            }
+        }
     }
 
     private func hit(_ p: CGPoint, _ size: CGSize) -> Int? {
-        bands.enumerated()
-            .map { ($0.offset, hypot(handle($0.element, size).x - p.x, handle($0.element, size).y - p.y)) }
-            .filter { $0.1 < 16 }
+        let hs = handles(size)
+        // Graphic sliders are dense: hit by column, not by distance.
+        let radius: CGFloat = points.count > 10 && edit == .pro ? 9 : 16
+        return hs.enumerated()
+            .map { ($0.offset, points.isEmpty || edit != .pro ? hypot($0.element.pt.x - p.x, $0.element.pt.y - p.y) : abs($0.element.pt.x - p.x)) }
+            .filter { $0.1 < radius }
             .min { $0.1 < $1.1 }?.0
     }
 
@@ -126,8 +194,10 @@ struct CurveView: View {
         var dt = a.lastT == 0 ? 1.0 / 60 : min(now - a.lastT, 1.0 / 20)
         a.lastT = now
         guard let curve else { return }
+        let hs = handles(size)
+        let dragBand = dragging.flatMap { $0 < hs.count ? hs[$0].bandIndex : nil }
         let shapeT = curve.total.map { $0 - curve.preamp }
-        let sel = selected ?? dragging
+        let sel = edit == .pro ? (selected ?? dragBand) : nil
         let off = profile.correction.count
         let bandT: [Double] = (sel.map { off + $0 }).flatMap { $0 < curve.bands.count ? curve.bands[$0] : nil }
             ?? Array(repeating: 0, count: curve.freqs.count)
@@ -142,15 +212,17 @@ struct CurveView: View {
         let (k, cDamp) = dragging != nil ? (900.0, 60.0) : (170.0, 15.0)
         let steps = dt > 1.0 / 50 ? 2 : 1
         dt /= Double(steps)
+        let scaleT = hs.indices.map { i -> Double in
+            if i == dragging { return 1.55 }
+            if let b = hs[i].bandIndex, b == selected { return 1.3 }
+            return i == hover ? 1.2 : 1
+        }
         for _ in 0..<steps {
             CurveAnim.spring(&a.shape, &a.shapeV, to: shapeT, k: k, c: cDamp, dt: dt, snap: !motion)
             CurveAnim.spring(&a.total, &a.totalV, to: curve.total, k: k, c: cDamp, dt: dt, snap: !motion)
             CurveAnim.spring(&a.band, &a.bandV, to: bandT, k: 260, c: 20, dt: dt, snap: !motion)
             CurveAnim.spring(&a.range, &a.rangeV, to: targetRange, k: 90, c: 19, dt: dt, snap: !motion)
-            let hs = bands.indices.map { i -> Double in
-                i == dragging ? 1.55 : (i == sel ? 1.3 : (i == hover ? 1.2 : 1))
-            }
-            CurveAnim.spring(&a.handleScale, &a.handleScaleV, to: hs, k: 380, c: 14, dt: dt, snap: !motion)
+            CurveAnim.spring(&a.handleScale, &a.handleScaleV, to: scaleT, k: 380, c: 14, dt: dt, snap: !motion)
         }
         a.ripples.removeAll { now - $0.t0 > 0.9 }
     }
@@ -274,7 +346,7 @@ struct CurveView: View {
             ctx.stroke(shape, with: horiz(g), style: StrokeStyle(lineWidth: lw * 0.9, lineCap: .round, lineJoin: .round))
         }
 
-        guard interactive else { return }
+        guard edit != .none else { return }
 
         // Ripples from grabbed handles.
         for r in a.ripples {
@@ -288,14 +360,26 @@ struct CurveView: View {
             }
         }
 
+        let hs = handles(size)
+        let activeHandle = dragging ?? selected.flatMap { s in hs.firstIndex { $0.bandIndex == s } }
+
+        // Graphic sliders: a faint stem from 0 dB to each point.
+        if case .graphic = profile.eq, edit == .pro {
+            for (i, hd) in hs.enumerated() {
+                let col = t.curveColor(at: Double(hd.pt.x / w))
+                ctx.stroke(Path { $0.move(to: .init(x: hd.pt.x, y: zeroY)); $0.addLine(to: hd.pt) },
+                           with: .color(col.opacity(i == activeHandle || i == hover ? 0.9 : 0.35)), lineWidth: points.count > 10 ? 2 : 3)
+            }
+        }
+
         // Handles.
-        let active = selected ?? dragging
-        for (i, b) in bands.enumerated() {
-            let pt = handle(b, size)
-            let col = b.enabled ? t.curveColor(at: Double(pt.x / w)) : .gray
+        for (i, hd) in hs.enumerated() {
+            let pt = hd.pt
+            let col = hd.enabled ? t.curveColor(at: Double(pt.x / w)) : .gray
             let sc = i < a.handleScale.count ? a.handleScale[i] : 1
-            let r = 6 * CGFloat(sc)
-            if i == active || i == hover {
+            let base: CGFloat = { if case .point = hd.kind { return points.count > 10 ? 3.5 : 5 }; if case .macro = hd.kind { return 7.5 }; return 6 }()
+            let r = base * CGFloat(sc)
+            if i == activeHandle || i == hover {
                 var halo = ctx
                 halo.addFilter(.blur(radius: 6))
                 halo.fill(Path(ellipseIn: CGRect(x: pt.x - r * 1.9, y: pt.y - r * 1.9, width: r * 3.8, height: r * 3.8)),
@@ -304,32 +388,52 @@ struct CurveView: View {
             let rect = CGRect(x: pt.x - r, y: pt.y - r, width: 2 * r, height: 2 * r)
             ctx.fill(Path(ellipseIn: rect), with: .color(col))
             ctx.stroke(Path(ellipseIn: rect), with: .color(.white.opacity(0.95)), lineWidth: 1.6)
-            ctx.draw(Text("\(i + 1)").font(.system(size: 8 * CGFloat(min(sc, 1.3)), weight: .heavy)).foregroundStyle(.white), at: pt)
+            switch hd.kind {
+            case .band(let b):
+                ctx.draw(Text("\(b + 1)").font(.system(size: 8 * CGFloat(min(sc, 1.3)), weight: .heavy)).foregroundStyle(.white), at: pt)
+            case .macro(_, let name):
+                let below = pt.y < h - 28
+                ctx.draw(Text(L(name)).font(.system(size: 10, weight: .bold)).foregroundStyle(ink.opacity(0.8)),
+                         at: CGPoint(x: pt.x, y: pt.y + (below ? r + 10 : -(r + 10))))
+            case .point: break
+            }
         }
 
-        // Readout bubble for the selected band.
-        if let i = active, i < bands.count {
-            let b = bands[i]
-            let pt = handle(b, size)
-            var txt = "\(fmtHz(b.freq))"
-            if b.kind.hasGain { txt += String(format: "  %+.1f dB", b.gainDb) }
-            txt += String(format: "  Q %.2f", b.q)
-            if let s = dragStart, dragging == i {
-                let df = b.freq / s.freq
-                txt += String(format: "   Δ %@%.0f%%", df >= 1 ? "+" : "", (df - 1) * 100)
-                if b.kind.hasGain { txt += String(format: " %+.1f dB", b.gainDb - s.gainDb) }
+        // Readout bubble for the active handle.
+        if let i = activeHandle ?? (edit == .easy || !points.isEmpty ? hover : nil), i < hs.count {
+            let pt = hs[i].pt
+            var txt = ""
+            switch hs[i].kind {
+            case .band(let bi) where bi < bands.count:
+                let b = bands[bi]
+                txt = fmtHz(b.freq)
+                if b.kind.hasGain { txt += String(format: "  %+.1f dB", b.gainDb) }
+                txt += String(format: "  Q %.2f", b.q)
+                if let s = dragStart, dragging == i, case .parametric(let sb) = s.profile.eq, bi < sb.count {
+                    let df = b.freq / sb[bi].freq
+                    txt += String(format: "   Δ %@%.0f%%", df >= 1 ? "+" : "", (df - 1) * 100)
+                    if b.kind.hasGain { txt += String(format: " %+.1f dB", b.gainDb - sb[bi].gainDb) }
+                    if s.qMode { txt += String(format: "  ×%.2f Q", b.q / max(sb[bi].q, 0.01)) }
+                }
+            case .point(let pi) where pi < points.count:
+                txt = fmtHz(points[pi].freq) + String(format: "  %+.1f dB", points[pi].gainDb)
+            case .macro(let kp, let name):
+                txt = L(name) + String(format: "  %+.1f dB", profile.macros[keyPath: kp])
+            default: break
             }
-            let resolved = ctx.resolve(Text(txt).font(.system(size: 11, weight: .semibold).monospacedDigit()).foregroundStyle(.white))
-            let sz = resolved.measure(in: size)
-            let ay = pt.y < 40 ? pt.y + 28 : pt.y - 26
-            let ax = min(max(pt.x, sz.width / 2 + 10), w - sz.width / 2 - 10)
-            let bg = CGRect(x: ax - sz.width / 2 - 8, y: ay - sz.height / 2 - 4, width: sz.width + 16, height: sz.height + 8)
-            let col = t.curveColor(at: Double(pt.x / w))
-            var sh = ctx
-            sh.addFilter(.shadow(color: col.opacity(0.6), radius: 8))
-            sh.fill(Path(roundedRect: bg, cornerRadius: bg.height / 2), with: .color(Color.black.opacity(0.78)))
-            ctx.stroke(Path(roundedRect: bg, cornerRadius: bg.height / 2), with: .color(col.opacity(0.9)), lineWidth: 1)
-            ctx.draw(resolved, at: .init(x: ax, y: ay))
+            if !txt.isEmpty {
+                let resolved = ctx.resolve(Text(txt).font(.system(size: 11, weight: .semibold).monospacedDigit()).foregroundStyle(.white))
+                let sz = resolved.measure(in: size)
+                let ay = pt.y < 40 ? pt.y + 30 : pt.y - 28
+                let ax = min(max(pt.x, sz.width / 2 + 10), w - sz.width / 2 - 10)
+                let bg = CGRect(x: ax - sz.width / 2 - 8, y: ay - sz.height / 2 - 4, width: sz.width + 16, height: sz.height + 8)
+                let col = t.curveColor(at: Double(pt.x / w))
+                var sh = ctx
+                sh.addFilter(.shadow(color: col.opacity(0.6), radius: 8))
+                sh.fill(Path(roundedRect: bg, cornerRadius: bg.height / 2), with: .color(Color.black.opacity(0.78)))
+                ctx.stroke(Path(roundedRect: bg, cornerRadius: bg.height / 2), with: .color(col.opacity(0.9)), lineWidth: 1)
+                ctx.draw(resolved, at: .init(x: ax, y: ay))
+            }
         }
     }
 
@@ -338,32 +442,54 @@ struct CurveView: View {
     private func drag(size: CGSize) -> some Gesture {
         DragGesture(minimumDistance: 0)
             .onChanged { g in
+                let hs = handles(size)
                 if dragging == nil {
                     guard let i = hit(g.startLocation, size) else {
                         if selected != nil { selected = nil }
                         return
                     }
                     dragging = i
-                    selected = i
-                    dragStart = bands[i]
+                    if let b = hs[i].bandIndex { selected = b }
+                    dragStart = (profile, NSEvent.modifierFlags.contains(.option), hs[i].pt)
                     if theme.motionAllowed {
-                        anim.ripples.append((handle(bands[i], size), Date().timeIntervalSinceReferenceDate,
-                                             theme.current.curveColor(at: Double(handle(bands[i], size).x / size.width))))
+                        anim.ripples.append((hs[i].pt, Date().timeIntervalSinceReferenceDate,
+                                             theme.current.curveColor(at: Double(hs[i].pt.x / size.width))))
                     }
                 }
-                guard let i = dragging, case .parametric(var bs) = profile.eq, i < bs.count else { return }
-                var f = freq(g.location.x, size.width)
-                let mag = pow(10, floor(log10(f)) - 2) // 3 significant digits
-                f = (f / mag).rounded() * mag
-                bs[i].freq = min(max(f, 20), 20_000)
-                if bs[i].kind.hasGain {
-                    bs[i].gainDb = (min(max(db(g.location.y, size.height), -24), 24) * 10).rounded() / 10
+                guard let i = dragging, i < hs.count, let start = dragStart else { return }
+                // A plain click selects; nothing changes until the mouse really moves.
+                guard hypot(g.translation.width, g.translation.height) > 2 else { return }
+                // Move relative to where the dot was grabbed (no jump to the cursor).
+                let target = CGPoint(x: start.pt.x + g.translation.width, y: start.pt.y + g.translation.height)
+                let dB = (min(max(db(target.y, size.height), -24), 24) * 10).rounded() / 10
+                switch hs[i].kind {
+                case .band(let bi):
+                    guard case .parametric(var bs) = profile.eq, bi < bs.count,
+                          case .parametric(let sb) = start.profile.eq, bi < sb.count else { return }
+                    if start.qMode {
+                        // Option-drag: up = narrower (higher Q), down = wider.
+                        let q = sb[bi].q * pow(2, Double(-g.translation.height) / 70)
+                        bs[bi].q = (min(max(q, 0.1), 30) * 100).rounded() / 100
+                    } else {
+                        var f = freq(target.x, size.width)
+                        let mag = pow(10, floor(log10(f)) - 2) // 3 significant digits
+                        f = (f / mag).rounded() * mag
+                        bs[bi].freq = min(max(f, 20), 20_000)
+                        if bs[bi].kind.hasGain { bs[bi].gainDb = dB }
+                    }
+                    profile.eq = .parametric(bs)
+                case .point(let pi):
+                    guard case .graphic(var ps) = profile.eq, pi < ps.count else { return }
+                    ps[pi].gainDb = (min(max(dB, -12), 12) * 2).rounded() / 2
+                    profile.eq = .graphic(ps)
+                case .macro(let kp, _):
+                    profile.macros[keyPath: kp] = (min(max(dB, -12), 12) * 2).rounded() / 2
                 }
-                profile.eq = .parametric(bs)
             }
             .onEnded { g in
                 defer { dragging = nil; dragStart = nil }
                 guard dragging == nil, hypot(g.translation.width, g.translation.height) < 3 else { return }
+                guard edit == .pro, case .parametric = profile.eq else { return }
                 // Double-click on empty space adds a band there.
                 let now = Date().timeIntervalSinceReferenceDate
                 if let last = anim.lastEmptyClick, now - last.t < 0.4, hypot(last.pt.x - g.location.x, last.pt.y - g.location.y) < 8 {

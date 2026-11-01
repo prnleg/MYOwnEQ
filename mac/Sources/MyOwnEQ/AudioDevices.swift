@@ -89,6 +89,21 @@ enum CA {
             Float32(0)).map(Double.init)
     }
 
+    /// Whether the device's main volume can be changed from software.
+    static func volumeSettable(_ dev: AudioObjectID) -> Bool {
+        var a = address(kAudioHardwareServiceDeviceProperty_VirtualMainVolume, kAudioObjectPropertyScopeOutput)
+        var settable: DarwinBoolean = false
+        return AudioObjectIsPropertySettable(dev, &a, &settable) == noErr && settable.boolValue
+    }
+
+    /// Set the device's main volume (0…1), like the keyboard volume keys.
+    @discardableResult
+    static func setVolume(_ dev: AudioObjectID, _ v: Double) -> Bool {
+        var a = address(kAudioHardwareServiceDeviceProperty_VirtualMainVolume, kAudioObjectPropertyScopeOutput)
+        var value = Float32(min(max(v, 0), 1))
+        return AudioObjectSetPropertyData(dev, &a, 0, nil, UInt32(MemoryLayout<Float32>.size), &value) == noErr
+    }
+
     /// Our process as a Core Audio process object (to exclude from the tap).
     static func ownProcessObject() -> AudioObjectID? {
         var pid = getpid()

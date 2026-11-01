@@ -34,6 +34,10 @@ struct Band: Codable, Equatable, Identifiable {
     // Local identity for SwiftUI lists; not sent over the wire.
     var id = UUID()
     enum CodingKeys: String, CodingKey { case kind, freq, gainDb, q, enabled }
+
+    static func == (a: Band, b: Band) -> Bool {
+        a.kind == b.kind && a.freq == b.freq && a.gainDb == b.gainDb && a.q == b.q && a.enabled == b.enabled
+    }
 }
 
 struct GraphicPoint: Codable, Equatable {
@@ -140,6 +144,8 @@ struct DeviceGroup: Codable, Equatable, Identifiable {
     var defaultProfile: ID?
     var favorites: [ID] = []
     var enabled = true
+    /// Extra gain in dB (0…12); the core forces the limiter on while > 0.
+    var boostDb = 0.0
 }
 
 enum Trigger: String, Codable, CaseIterable { case running, focused }
@@ -240,4 +246,99 @@ struct Curve: Codable {
     var total: [Double]
     var preamp: Double
     var bands: [[Double]]
+}
+
+// MARK: - lenient decoding
+//
+// The Rust core fills in serde defaults and skips some empty fields (e.g.
+// `tags` when empty). Swift's synthesized Decodable would reject a missing key
+// and fail the whole state, so every field Rust treats as optional is decoded
+// with the same default here. Defined in extensions to keep memberwise inits.
+
+private extension KeyedDecodingContainer {
+    func get<T: Decodable>(_ key: K, _ fallback: T) throws -> T {
+        try decodeIfPresent(T.self, forKey: key) ?? fallback
+    }
+}
+
+extension Band {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        self.init(kind: try c.decode(FilterKind.self, forKey: .kind),
+                  freq: try c.decode(Double.self, forKey: .freq),
+                  gainDb: try c.get(.gainDb, 0),
+                  q: try c.get(.q, 0.707),
+                  enabled: try c.get(.enabled, true))
+    }
+}
+
+extension Macros {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        self.init(bass: try c.get(.bass, 0), mids: try c.get(.mids, 0),
+                  clarity: try c.get(.clarity, 0), treble: try c.get(.treble, 0))
+    }
+}
+
+extension Profile {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(ID.self, forKey: .id),
+                  name: try c.get(.name, ""),
+                  correction: try c.get(.correction, []),
+                  correctionSource: try c.decodeIfPresent(CorrectionSource.self, forKey: .correctionSource),
+                  eq: try c.get(.eq, .parametric([])),
+                  macros: try c.get(.macros, Macros()),
+                  preamp: try c.get(.preamp, .auto),
+                  balance: try c.get(.balance, 0),
+                  limiter: try c.get(.limiter, true),
+                  loudness: try c.get(.loudness, 0),
+                  tags: try c.get(.tags, []))
+    }
+}
+
+extension DeviceMember {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        self.init(key: try c.decode(DeviceKey.self, forKey: .key),
+                  osName: try c.get(.osName, ""),
+                  kind: (try? c.decodeIfPresent(DeviceKind.self, forKey: .kind)) ?? .other)
+    }
+}
+
+extension DeviceGroup {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(ID.self, forKey: .id),
+                  name: try c.get(.name, ""),
+                  members: try c.get(.members, []),
+                  defaultProfile: try c.decodeIfPresent(ID.self, forKey: .defaultProfile),
+                  favorites: try c.get(.favorites, []),
+                  enabled: try c.get(.enabled, true),
+                  boostDb: try c.get(.boostDb, 0))
+    }
+}
+
+extension Rule {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        self.init(id: try c.decode(ID.self, forKey: .id),
+                  group: try c.decode(ID.self, forKey: .group),
+                  app: try c.decode(AppMatch.self, forKey: .app),
+                  trigger: try c.get(.trigger, .running),
+                  profile: try c.decode(ID.self, forKey: .profile),
+                  priority: try c.get(.priority, 0),
+                  enabled: try c.get(.enabled, true))
+    }
+}
+
+extension Library {
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        self.init(schema: try c.get(.schema, 1),
+                  profiles: try c.get(.profiles, []),
+                  groups: try c.get(.groups, []),
+                  rules: try c.get(.rules, []),
+                  selected: try c.get(.selected, [:]))
+    }
 }

@@ -18,6 +18,20 @@ struct MyOwnEQApp: App {
             }
             exit(ok ? 0 : 1)
         }
+        // Test helper: `MyOwnEQ --check-library <library.json>` decodes it exactly
+        // like the app does and exits 0/1 (used by CI with a fixture).
+        if let i = args.firstIndex(of: "--check-library"), args.count > i + 1 {
+            let d = JSONDecoder()
+            d.keyDecodingStrategy = .convertFromSnakeCase
+            do {
+                let lib = try d.decode(Library.self, from: Data(contentsOf: URL(fileURLWithPath: args[i + 1])))
+                print("ok: \(lib.profiles.count) profiles, \(lib.groups.count) groups, \(lib.rules.count) rules")
+                exit(0)
+            } catch {
+                print("FAILED: \(error)")
+                exit(1)
+            }
+        }
         _controller = StateObject(wrappedValue: AppController())
         _theme = StateObject(wrappedValue: ThemeStore())
     }
