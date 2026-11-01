@@ -16,3 +16,4 @@ server/.env
 /windows/publish/
 bin/
 obj/
+/dist/

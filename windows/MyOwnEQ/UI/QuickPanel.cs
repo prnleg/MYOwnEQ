@@ -11,16 +11,17 @@ namespace MyOwnEQ.UI;
 public sealed class QuickPanel : Window
 {
     private readonly AppController _c;
-    private readonly Action _openEditor, _quit;
+    private readonly Action _openEditor, _quit, _restartForUpdate;
     private readonly StackPanel _root = new() { Margin = new Thickness(16) };
     private Profile? _draft;
     private bool _dragging;
 
-    public QuickPanel(AppController c, Action openEditor, Action quit)
+    public QuickPanel(AppController c, Action openEditor, Action quit, Action restartForUpdate)
     {
         _c = c;
         _openEditor = openEditor;
         _quit = quit;
+        _restartForUpdate = restartForUpdate;
         Width = 360;
         SizeToContent = SizeToContent.Height;
         WindowStyle = WindowStyle.None;
@@ -76,6 +77,16 @@ public sealed class QuickPanel : Window
         {
             _root.Children.Add(Ui.Text("Equalizer APO needs setup. Open MyOwnEQ to finish.", 12, color: Brushes.Orange));
             _root.Children.Add(Ui.Row(Ui.Button("Open setup", _openEditor, primary: true)));
+        }
+
+        if (_c.Update is { IsReady: true } upd)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+            var restart = Ui.Button("Restart", _restartForUpdate, primary: true);
+            DockPanel.SetDock(restart, Dock.Right);
+            row.Children.Add(restart);
+            row.Children.Add(Ui.Text($"⬇ MyOwnEQ {upd.Version} ready", 12));
+            _root.Children.Add(row);
         }
 
         // Active profile + picker + favorite star

@@ -18,6 +18,8 @@ final class AppController: ObservableObject {
     private var lastApps: [AppWatcher.App] = []
     private var saveTask: Task<Void, Never>?
     private var syncTimer: Timer?
+    private var updateTimer: Timer?
+    @Published private(set) var update: UpdateInfo?
     @Published private(set) var discovered: [FoundHost] = []
     @Published private(set) var discovering = false
 
@@ -32,12 +34,29 @@ final class AppController: ObservableObject {
         }
         devicesChanged()
         appWatcher?.fire()
+        // Updates: configure, and if a verified update is already waiting from
+        // the last session, this launch is the "restart": install it now.
+        updateReply(core.command("update_configure", ["version": Self.appVersion, "platform": "mac"]))
+        if update?.isReady == true, update?.auto != false {
+            installUpdateAndQuit()
+            return
+        }
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.updateReply(self?.core.command("update_tick") ?? [:]) }
+        }
         // Poll sync a few times per second (cheap no-op when sync is off).
         syncTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.syncTick() }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
-            MainActor.assumeIsolated { self?.engine.stop() }
+            MainActor.assumeIsolated {
+                guard let self else { return }
+                self.engine.stop()
+                // "Install on restart": quitting with a ready update installs it.
+                if self.update?.isReady == true, self.update?.auto != false {
+                    self.core.command("update_apply", ["app_path": Bundle.main.bundlePath])
+                }
+            }
         }
     }
 
@@ -230,6 +249,44 @@ final class AppController: ObservableObject {
 
     func unlink(_ key: DeviceKey) {
         apply(core.command("unlink_device", ["key": ["machine": key.machine, "uid": key.uid]]))
+    }
+
+    // MARK: - updates
+
+    static var appVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.0"
+    }
+
+    private func updateReply(_ r: [String: Any]) {
+        guard let u = r["update"], let d = try? JSONSerialization.data(withJSONObject: u) else { return }
+        let dec = JSONDecoder()
+        dec.keyDecodingStrategy = .convertFromSnakeCase
+        if let info = try? dec.decode(UpdateInfo.self, from: d), info != update { update = info }
+    }
+
+    func checkForUpdates() {
+        updateReply(core.command("update_check"))
+        // Status flips to ready asynchronously; poll briefly.
+        for delay in [2.0, 6.0, 15.0, 40.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.updateReply(self?.core.command("update_tick") ?? [:])
+            }
+        }
+    }
+
+    func setAutoUpdate(_ on: Bool) { updateReply(core.command("update_set_auto", ["auto": on])) }
+
+    /// Launch the swap script and quit; the script relaunches the new version.
+    func installUpdateAndQuit() {
+        engine.stop()
+        let r = core.command("update_apply", ["app_path": Bundle.main.bundlePath])
+        if r["ok"] as? Bool == true {
+            update = nil // don't apply twice in willTerminate
+            NSApp.terminate(nil)
+        } else {
+            lastMessage = r["error"] as? String
+            restartEngine()
+        }
     }
 
     // MARK: - derived UI info

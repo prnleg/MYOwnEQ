@@ -1,0 +1,15 @@
+[package]
+name = "myowneq-release"
+description = "Release helper: key generation, artifact signing, update manifest"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+myowneq-update = { path = "../../core/update" }
+serde_json.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+base64.workspace = true
+getrandom.workspace = true

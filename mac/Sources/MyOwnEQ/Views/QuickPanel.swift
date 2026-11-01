@@ -18,6 +18,14 @@ struct QuickPanel: View {
                     }.controlSize(.small)
                 }
             }
+            if let u = c.update, u.isReady {
+                HStack {
+                    Label("MyOwnEQ \(u.version ?? "") ready", systemImage: "arrow.down.circle.fill")
+                        .font(.callout)
+                    Spacer()
+                    Button("Restart") { c.installUpdateAndQuit() }.controlSize(.small)
+                }
+            }
             Divider()
             activeRow
             favorites

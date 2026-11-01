@@ -12,6 +12,7 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 myowneq-dsp = { path = "../dsp" }
 myowneq-model = { path = "../model" }
 myowneq-sync = { path = "../sync" }
+myowneq-update = { path = "../update" }
 myowneq-server = { path = "../../server" }
 serde.workspace = true
 serde_json.workspace = true

@@ -183,6 +183,29 @@ public sealed class SyncInfo
     public int Pending { get; set; }
 }
 
+/// <summary>Updater status. State: off | idle | checking | up_to_date | downloading | ready | error.</summary>
+public sealed class UpdateInfo
+{
+    public string State { get; set; } = "off";
+    public string? Version { get; set; }
+    public string? NotesUrl { get; set; }
+    public string? Message { get; set; }
+    public string? Current { get; set; }
+    public bool? Auto { get; set; }
+    public long? CheckedAt { get; set; }
+
+    [JsonIgnore] public bool IsReady => State == "ready";
+    [JsonIgnore] public string Label => State switch
+    {
+        "checking" => "Checking for updates…",
+        "up_to_date" => "Up to date",
+        "downloading" => $"Downloading {Version}…",
+        "ready" => $"Version {Version} is ready. Restart to install.",
+        "error" => $"Update check failed: {Message}",
+        _ => "Updates idle",
+    };
+}
+
 public sealed class FoundHost
 {
     public string Name { get; set; } = "";
@@ -202,6 +225,7 @@ public sealed class CoreState
     public Library Library { get; set; } = new();
     public List<string> Warnings { get; set; } = new();
     public SyncInfo Sync { get; set; } = new();
+    public UpdateInfo? Update { get; set; }
 
     public Profile? FindProfile(string? id) => id is null ? null : Library.Profiles.FirstOrDefault(p => p.Id == id);
     public DeviceGroup? FindGroup(string? id) => id is null ? null : Library.Groups.FirstOrDefault(g => g.Id == id);

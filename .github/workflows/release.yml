@@ -1,0 +1,148 @@
+name: release
+
+# Push a tag like v0.2.0 to publish:
+#   - MyOwnEQ-<v>.dmg + MyOwnEQ-mac.zip (universal, updater uses the zip)
+#   - MyOwnEQ-Setup-<v>.exe (per-user installer, also used by the updater)
+#   - latest.json (update manifest, every artifact ed25519-signed)
+#   - ghcr.io/prnleg/myowneq-server:<v> and :latest
+#
+# Required secret: MYOWNEQ_SIGNING_KEY (see RELEASING.md).
+# Optional secrets: MAC_CERT_P12 + MAC_CERT_PASSWORD (stable macOS signature,
+# so the audio permission survives updates).
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Import signing certificate (optional)
+        env:
+          P12: ${{ secrets.MAC_CERT_P12 }}
+          PASS: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          if [ -z "$P12" ]; then echo "No MAC_CERT_P12: building ad-hoc signed"; exit 0; fi
+          KC="$RUNNER_TEMP/build.keychain"
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings "$KC"
+          security unlock-keychain -p ci "$KC"
+          echo "$P12" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$PASS" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KC"
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+
+      - name: Build universal app
+        run: VERSION="${GITHUB_REF_NAME#v}" mac/scripts/build-app.sh
+
+      - name: Package
+        run: |
+          V="${GITHUB_REF_NAME#v}"
+          mkdir -p dist dmg
+          ditto -c -k --keepParent mac/build/MyOwnEQ.app dist/MyOwnEQ-mac.zip
+          cp -R mac/build/MyOwnEQ.app dmg/
+          ln -s /Applications dmg/Applications
+          hdiutil create -volname "MyOwnEQ $V" -srcfolder dmg -ov -format UDZO "dist/MyOwnEQ-$V.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mac
+          path: dist/
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          cargo build --release -p myowneq-ffi
+          dotnet publish windows/MyOwnEQ/MyOwnEQ.csproj -c Release -r win-x64 --self-contained true -p:Version=$v -o windows/publish
+          if (!(Test-Path windows/publish/myowneq_ffi.dll)) { throw "myowneq_ffi.dll missing" }
+
+      - name: Installer
+        shell: pwsh
+        run: |
+          $v = $env:GITHUB_REF_NAME.TrimStart('v')
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DMyAppVersion=$v" windows/installer/MyOwnEQ.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/
+
+  server-image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: server/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/prnleg/myowneq-server:${{ github.ref_name }}
+            ghcr.io/prnleg/myowneq-server:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  publish:
+    needs: [mac, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Sign + manifest
+        env:
+          MYOWNEQ_SIGNING_KEY: ${{ secrets.MYOWNEQ_SIGNING_KEY }}
+        run: |
+          if [ -z "$MYOWNEQ_SIGNING_KEY" ]; then echo "::error::MYOWNEQ_SIGNING_KEY secret is missing (see RELEASING.md)"; exit 1; fi
+          V="${GITHUB_REF_NAME#v}"
+          cargo run -q --release -p myowneq-release -- manifest "$GITHUB_REF_NAME" \
+            "https://github.com/${GITHUB_REPOSITORY}/releases/download/${GITHUB_REF_NAME}" \
+            --mac dist/MyOwnEQ-mac.zip \
+            --windows "dist/MyOwnEQ-Setup-$V.exe" > dist/latest.json
+          cat dist/latest.json
+          (cd dist && sha256sum * > SHA256SUMS.txt)
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

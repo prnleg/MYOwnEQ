@@ -149,6 +149,22 @@ pub enum Command {
         #[serde(default = "default_discover_ms")]
         timeout_ms: u64,
     },
+    /// Start the updater. `platform`: "mac" | "windows".
+    UpdateConfigure {
+        version: String,
+        platform: myowneq_update::Platform,
+    },
+    /// Check now (ignores the auto setting).
+    UpdateCheck,
+    /// Cheap periodic call: runs the daily auto-check when due, returns status.
+    UpdateTick,
+    UpdateSetAuto {
+        auto: bool,
+    },
+    /// Launch the installer for a ready update; the app must quit right after.
+    UpdateApply {
+        app_path: Option<String>,
+    },
 }
 
 fn default_discover_ms() -> u64 {
@@ -171,6 +187,11 @@ impl Command {
                 | Command::SyncConfigure { .. }
                 | Command::SyncTick
                 | Command::SyncDiscover { .. }
+                | Command::UpdateConfigure { .. }
+                | Command::UpdateCheck
+                | Command::UpdateTick
+                | Command::UpdateSetAuto { .. }
+                | Command::UpdateApply { .. }
         )
     }
 }
@@ -184,6 +205,8 @@ struct LocalFile {
     local: Option<LocalState>,
     #[serde(default = "yes")]
     enabled: bool,
+    #[serde(default = "yes")]
+    auto_update: bool,
 }
 
 fn yes() -> bool {
@@ -210,6 +233,9 @@ pub struct Core {
     analyzer: Option<SpectrumAnalyzer>,
     warnings: Vec<String>,
     sync: SyncGlue,
+    updater: Option<myowneq_update::Updater>,
+    auto_update: bool,
+    last_update_check: Option<std::time::Instant>,
 }
 
 impl Core {
@@ -237,6 +263,7 @@ impl Core {
             .unwrap_or(LocalFile {
                 local: None,
                 enabled: true,
+                auto_update: true,
             });
         let local = lf
             .local
@@ -248,6 +275,7 @@ impl Core {
             lib,
             local,
             enabled: lf.enabled,
+            auto_update: lf.auto_update,
             device: None,
             connected: Vec::new(),
             apps: Vec::new(),
@@ -261,6 +289,8 @@ impl Core {
             analyzer: None,
             warnings,
             sync,
+            updater: None,
+            last_update_check: None,
         };
         core.refresh();
         core
@@ -357,6 +387,7 @@ impl Core {
             let lf = LocalFile {
                 local: Some(self.local.clone()),
                 enabled: self.enabled,
+                auto_update: self.auto_update,
             };
             let _ = std::fs::create_dir_all(d);
             if let Ok(s) = serde_json::to_string_pretty(&lf) {
@@ -553,6 +584,35 @@ impl Core {
                 }
                 self.save_library();
             }
+            UpdateConfigure { version, platform } => {
+                let dir = self
+                    .data_dir
+                    .clone()
+                    .unwrap_or_else(std::env::temp_dir)
+                    .join("updates");
+                self.updater = Some(myowneq_update::Updater::new(&version, platform, dir));
+                self.last_update_check = None;
+                return Ok(self.update_tick());
+            }
+            UpdateCheck => {
+                if let Some(u) = &self.updater {
+                    u.check_async();
+                    self.last_update_check = Some(std::time::Instant::now());
+                }
+                return Ok(json!({ "ok": true, "update": self.update_json() }));
+            }
+            UpdateTick => return Ok(self.update_tick()),
+            UpdateSetAuto { auto } => {
+                self.auto_update = auto;
+                self.save_local();
+                return Ok(self.update_tick());
+            }
+            UpdateApply { app_path } => {
+                let u = self.updater.as_ref().ok_or("updater not configured")?;
+                u.apply(app_path.as_deref().map(std::path::Path::new))
+                    .map_err(|e| e.to_string())?;
+                return Ok(json!({ "ok": true }));
+            }
             SyncDiscover { timeout_ms } => {
                 let found = myowneq_sync::discovery::browse(std::time::Duration::from_millis(
                     timeout_ms.min(5000),
@@ -615,6 +675,33 @@ impl Core {
             })
             .collect();
         apo::write(&sections)
+    }
+
+    /// Auto-check once at startup and then daily.
+    fn update_tick(&mut self) -> Value {
+        const DAY: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+        if let Some(u) = &self.updater {
+            let due = self.last_update_check.is_none_or(|t| t.elapsed() >= DAY);
+            if self.auto_update && due {
+                u.check_async();
+                self.last_update_check = Some(std::time::Instant::now());
+            }
+        }
+        json!({ "ok": true, "update": self.update_json() })
+    }
+
+    fn update_json(&self) -> Value {
+        match &self.updater {
+            Some(u) => {
+                let mut v = serde_json::to_value(u.status()).unwrap_or(Value::Null);
+                if let Value::Object(m) = &mut v {
+                    m.insert("current".into(), json!(u.current));
+                    m.insert("auto".into(), json!(self.auto_update));
+                }
+                v
+            }
+            None => json!({ "state": "off", "auto": self.auto_update }),
+        }
     }
 
     fn current_group(&self) -> Option<Id> {
@@ -684,6 +771,7 @@ impl Core {
             "library": self.lib,
             "warnings": self.warnings,
             "sync": self.sync.status_json(),
+            "update": self.update_json(),
         })
     }
 }

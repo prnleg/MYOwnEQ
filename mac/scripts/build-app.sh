@@ -3,6 +3,7 @@
 #   mac/scripts/build-app.sh            release, universal
 #   mac/scripts/build-app.sh --native   release, this Mac's arch only (faster)
 # Env: SIGN_IDENTITY (default: first "Apple Development" identity, else ad-hoc "-")
+#      VERSION (default: latest git tag without the v, else 0.1.0)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -37,6 +38,11 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN" "$APP/Contents/MacOS/MyOwnEQ"
 cp "$MAC/Resources/Info.plist" "$APP/Contents/Info.plist"
+VERSION="${VERSION:-$( (git -C "$ROOT" describe --tags --abbrev=0 2>/dev/null || true) | sed 's/^v//')}"
+VERSION="${VERSION:-0.1.0}"
+plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Info.plist"
+plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
+echo "    version $VERSION"
 
 IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development/{print $2; exit}')}"
 IDENTITY="${IDENTITY:--}"

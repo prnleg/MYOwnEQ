@@ -35,7 +35,15 @@ public partial class App : Application
             return;
         }
 
-        _panel = new QuickPanel(_controller, OpenEditor, Quit);
+        // A verified update downloaded last session: this launch is the "restart".
+        if (_controller.ShouldInstallOnStart && _controller.ApplyUpdate())
+        {
+            _controller.Dispose();
+            Shutdown();
+            return;
+        }
+
+        _panel = new QuickPanel(_controller, OpenEditor, Quit, RestartForUpdate);
         _tray = new TrayIcon(_controller, TogglePanel, OpenEditor, Quit);
 
         bool background = e.Args.Contains("--background");
@@ -70,8 +78,19 @@ public partial class App : Application
         _editor.Activate();
     }
 
+    private void RestartForUpdate()
+    {
+        if (_controller?.ApplyUpdate() != true) return;
+        _editor?.Close();
+        _tray?.Dispose();
+        _controller.Dispose();
+        Shutdown();
+    }
+
     private void Quit()
     {
+        // "Install on restart": quitting with a ready update installs it.
+        if (_controller?.Update is { IsReady: true } u && u.Auto != false) _controller.ApplyUpdate();
         _editor?.Close();
         _tray?.Dispose();
         _controller?.Dispose();

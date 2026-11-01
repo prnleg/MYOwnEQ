@@ -32,6 +32,13 @@ public sealed class AppController : IDisposable
     private readonly DispatcherTimer _saveDebounce;
     private Profile? _pendingSave;
     private readonly float[] _spectrum = new float[160];
+    private readonly DispatcherTimer _updateTimer;
+    public UpdateInfo? Update { get; private set; }
+
+    public static string AppVersion =>
+        System.Reflection.Assembly.GetEntryAssembly()?
+            .GetCustomAttributes(typeof(System.Reflection.AssemblyInformationalVersionAttribute), false)
+            .OfType<System.Reflection.AssemblyInformationalVersionAttribute>().FirstOrDefault()?.InformationalVersion ?? "0.0.0";
 
     public AppController(Dispatcher ui)
     {
@@ -60,8 +67,51 @@ public sealed class AppController : IDisposable
         _syncTimer.Tick += (_, _) => SyncTick();
         _syncTimer.Start();
 
+        UpdateReply(Core.Command("update_configure", new { version = AppVersion, platform = "windows" }));
+        _updateTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
+        _updateTimer.Tick += (_, _) => UpdateReply(Core.Command("update_tick"));
+        _updateTimer.Start();
+
         DevicesChanged();
         _apps.Fire();
+    }
+
+    // ---------------------------------------------------------------- updates
+
+    private void UpdateReply(JsonObject r)
+    {
+        var info = Core.Decode<UpdateInfo>(r["update"]);
+        if (info is null) return;
+        bool changed = Update is null || info.State != Update.State || info.Version != Update.Version || info.Auto != Update.Auto;
+        Update = info;
+        if (changed) Changed?.Invoke();
+    }
+
+    /// <summary>A verified update from the last session is waiting and auto-install is on.</summary>
+    public bool ShouldInstallOnStart => Update is { IsReady: true } && Update.Auto != false;
+
+    public void CheckForUpdates()
+    {
+        UpdateReply(Core.Command("update_check"));
+        foreach (var delay in new[] { 2, 6, 15, 40 })
+        {
+            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(delay) };
+            t.Tick += (_, _) => { t.Stop(); UpdateReply(Core.Command("update_tick")); };
+            t.Start();
+        }
+    }
+
+    public void SetAutoUpdate(bool on) => UpdateReply(Core.Command("update_set_auto", new { auto = on }));
+
+    /// <summary>Start the silent installer (it waits for us to exit, then relaunches us). True if started.</summary>
+    public bool ApplyUpdate()
+    {
+        if (Update is not { IsReady: true }) return false;
+        var r = Core.Command("update_apply");
+        if (r["ok"]?.GetValue<bool>() == true) { Update = null; return true; }
+        Message = r["error"]?.GetValue<string>();
+        Changed?.Invoke();
+        return false;
     }
 
     // ---------------------------------------------------------------- core plumbing
@@ -304,6 +354,7 @@ public sealed class AppController : IDisposable
     public void Dispose()
     {
         _syncTimer.Stop();
+        _updateTimer.Stop();
         _loopback?.Dispose();
         _apps.Dispose();
         _audio.Dispose();

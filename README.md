@@ -17,7 +17,7 @@ Então eu fiz o meu. E se vc quiser é teu tbm 🤝
 | 2 | Mac: pega o som do sistema inteiro + app na barra de menu | ✅ FEITO |
 | 3 | Sync (rede de casa / servidor próprio no Docker / nuvem) | 🧪 testando |
 | 4 | Windows (motor do Equalizer APO) | 🧪 testando |
-| 5 | Atualização automática e releases assinadas | ⏳ em breve |
+| 5 | Atualização automática e releases assinadas | 🧪 testando |
 
 ## O que ele faz (ou deveria fazer, calma lá tbm) 💥
 - 🎛️ **Modo Pro**: EQ paramétrico e gráfico (10/31 bandas), espectro ao vivo, a banda que vc tá mexendo fica destacada mostrando quanto mudou, limitador, balanço L/R e loudness
@@ -32,6 +32,7 @@ core/dsp     filtros em Rust que rodam no thread de áudio sem alocar nem travar
 core/model   perfis, fones, regras, salvar/carregar, formatos
 core/sync    sync: quem mexeu por último ganha, funciona offline e se acerta depois
 core/ffi     a ponte entre o Rust e os apps nativos
+core/update  atualização automática com assinatura ed25519
 server/      servidor de sync (Docker) que roda no teu servidorzinho
 windows/     app WPF (Fluent, cara de Windows 11) na bandeja + Equalizer APO fazendo o trampo pesado
 mac/         app SwiftUI na barra de menu + Core Audio Process Tap (macOS 14.2+)
@@ -45,6 +46,14 @@ mac/scripts/build-app.sh                             # MyOwnEQ.app universal -> 
 mac/scripts/build-app.sh --native                    # só pra arquitetura do teu Mac, mais rápido
 ```
 
+## Baixar 📦
+Aba **[Releases](https://github.com/prnleg/MYOwnEQ/releases/latest)**:
+- 🍎 **Mac**: `.dmg` → arrasta pro Applications. Primeira vez: **botão direito → Abrir** (não paguei os $99 da Apple, sou pobre fu**do 🤷)
+- 🪟 **Windows**: `MyOwnEQ-Setup.exe`. SmartScreen chora também: **Mais informações → Executar assim mesmo**
+- 🐳 **Servidor**: `docker compose pull && docker compose up -d`, sem segredo
+
+Depois **atualiza sozinho**: chego quieto, baixo quieto, instalo quieto, vou embora. confere a assinatura (se não bateu = lixo) e instala quando vc reinicia o app.
+
 ## Sync 🔄
 Nada de precisar criar conta, login, nuvem de empresa nem os krl. Escolhe:
 
@@ -54,7 +63,7 @@ Nada de precisar criar conta, login, nuvem de empresa nem os krl. Escolhe:
 ```sh
 cd server
 echo "MYOWNEQ_TOKEN=$(openssl rand -hex 16)" > .env
-docker compose up -d --build
+docker compose up -d
 ```
 Nos apps: *Connect to a server* → `IP-do-servidor:7878` + o token do `.env`. Vai expor pra internet? Bota atrás de um proxy com HTTPS (Caddy, Nginx, Traefik) e usa `https://teu.dominio`. Sem HTTPS teu token fica exposto (pelado) na rede, não vá cometer um vacilo desse 🤡
 
@@ -63,6 +72,8 @@ Nos apps: *Connect to a server* → `IP-do-servidor:7878` + o token do `.env`. V
 Depois liga os fones: *Device & Rules → Link with a device from another machine*. Trocou o perfil do KZ no Mac, o KZ do PC troca junto 🤝
 
 > ⚠️ Fecha o eqMac antes de abrir o MyOwnEQ. Dois EQ brigando pelo mesmo som não dá certo.
+
+Soltar versão nova: [RELEASING.md](RELEASING.md)
 
 ## Licença
 MIT. 

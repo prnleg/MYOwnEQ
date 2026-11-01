@@ -186,6 +186,7 @@ struct CoreState: Codable, Equatable {
     var library: Library
     var warnings: [String]
     var sync: SyncInfo
+    var update: UpdateInfo?
 
     func profile(_ id: ID?) -> Profile? { id.flatMap { i in library.profiles.first { $0.id == i } } }
     func group(_ id: ID?) -> DeviceGroup? { id.flatMap { i in library.groups.first { $0.id == i } } }
@@ -203,6 +204,30 @@ struct SyncInfo: Codable, Equatable {
     var hostPort: Int?
     var hostAddresses: [String]?
     var pending: Int
+}
+
+/// Updater status (core/update). `state`: off | idle | checking | up_to_date |
+/// downloading | ready | error.
+struct UpdateInfo: Codable, Equatable {
+    var state: String
+    var version: String?
+    var notesUrl: String?
+    var message: String?
+    var current: String?
+    var auto: Bool?
+    var checkedAt: Int?
+
+    var isReady: Bool { state == "ready" }
+    var label: String {
+        switch state {
+        case "checking": "Checking for updates…"
+        case "up_to_date": "Up to date"
+        case "downloading": "Downloading \(version ?? "")…"
+        case "ready": "Version \(version ?? "") is ready. Restart to install."
+        case "error": "Update check failed: \(message ?? "")"
+        default: "Updates idle"
+        }
+    }
 }
 
 struct FoundHost: Codable, Hashable {

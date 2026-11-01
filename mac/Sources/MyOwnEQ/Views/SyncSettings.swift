@@ -87,6 +87,22 @@ struct SyncSettings: View {
                 }
             }
 
+            Section("Updates") {
+                Toggle("Download updates automatically, install on restart",
+                       isOn: Binding(get: { c.update?.auto ?? true }, set: { c.setAutoUpdate($0) }))
+                HStack {
+                    Text(c.update?.label ?? "").font(.callout).foregroundStyle(.secondary)
+                    Spacer()
+                    if c.update?.isReady == true {
+                        Button("Restart now") { c.installUpdateAndQuit() }
+                    } else {
+                        Button("Check now") { c.checkForUpdates() }
+                            .disabled(c.update?.state == "checking" || c.update?.state == "downloading")
+                    }
+                }
+                LabeledContent("Version", value: AppController.appVersion)
+            }
+
             Section("This Mac") {
                 LabeledContent("Machine id", value: c.state?.machine ?? "")
             }

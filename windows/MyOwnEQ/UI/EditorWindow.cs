@@ -571,6 +571,15 @@ public sealed class EditorWindow : Window
             panel.Children.Add(Ui.Row(Ui.Button("Turn sync off", () => _c.ConfigureSync("off"))));
         }
 
+        var u = _c.Update;
+        var autoUpd = new CheckBox { Content = "Download updates automatically, install on restart", IsChecked = u?.Auto ?? true };
+        autoUpd.Click += (_, _) => _c.SetAutoUpdate(autoUpd.IsChecked == true);
+        var updRow = Ui.Row(Ui.Text((u?.Label ?? "") + "   ", 12, color: Ui.Secondary));
+        updRow.Children.Add(u?.IsReady == true
+            ? Ui.Button("Restart now", () => { if (_c.ApplyUpdate()) Application.Current.Shutdown(); }, primary: true)
+            : Ui.Button("Check now", _c.CheckForUpdates));
+        panel.Children.Add(Ui.Group("Updates", Ui.Column(6, autoUpd, updRow, Ui.Text($"Version {AppController.AppVersion}", 11, color: Ui.Secondary))));
+
         panel.Children.Add(Ui.Group("This PC", Ui.Text($"Machine id: {_c.State?.Machine}", 12, color: Ui.Secondary)));
         if (_c.Apo.Status == ApoStatus.Ready)
             panel.Children.Add(Ui.Group("Equalizer APO", Ui.Row(Ui.Button("Device selector…", _c.Apo.OpenConfigurator), Ui.Button("Restore my old config", _c.ApoRestore))));

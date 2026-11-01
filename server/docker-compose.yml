@@ -1,12 +1,15 @@
 # 1. echo "MYOWNEQ_TOKEN=$(openssl rand -hex 16)" > .env
-# 2. docker compose up -d --build
+# 2. docker compose up -d          (pulls the prebuilt image)
+#    docker compose pull && docker compose up -d   (update)
 # 3. In the app: Sync -> Server -> http://<server-ip>:7878 + the token from .env
+#
+# Build from source instead: docker compose up -d --build
 services:
   myowneq:
+    image: ghcr.io/prnleg/myowneq-server:latest
     build:
       context: ..
       dockerfile: server/Dockerfile
-    image: myowneq-server
     container_name: myowneq
     restart: unless-stopped
     ports:
