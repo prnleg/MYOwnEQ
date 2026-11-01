@@ -15,9 +15,9 @@ Então eu fiz o meu. E se vc quiser é teu tbm 🤝
 |---|---|---|
 | 1 | O cérebro em Rust: EQ, perfis, fones, regra por app, importadores | ✅ FEITO |
 | 2 | Mac: pega o som do sistema inteiro + app na barra de menu | ✅ FEITO |
-| 3 | Sync (rede de casa / servidor próprio no Docker / nuvem) | 🧪 testando |
-| 4 | Windows (motor do Equalizer APO) | 🧪 testando |
-| 5 | Atualização automática e releases assinadas | 🧪 testando |
+| 3 | Sync (rede de casa / servidor próprio no Docker / nuvem) | 🧪 Testado - SÓ LOCAL |
+| 4 | Windows (motor do Equalizer APO) | ✅ FEITO |
+| 5 | Atualização automática e releases assinadas | ✅ FEITO |
 
 ## O que ele faz (ou deveria fazer, calma lá tbm) 💥
 - 🎛️ **Modo Pro**: EQ paramétrico e gráfico (10/31 bandas), espectro ao vivo, a banda que vc tá mexendo fica destacada mostrando quanto mudou, limitador, balanço L/R e loudness

@@ -1,7 +1,9 @@
 //! MyOwnEQ data model: profiles, devices, app rules, the persisted library,
 //! built-in presets and import/export formats.
 
+pub mod assets;
 pub mod device;
+pub mod edit;
 pub mod formats;
 pub mod library;
 pub mod presets;

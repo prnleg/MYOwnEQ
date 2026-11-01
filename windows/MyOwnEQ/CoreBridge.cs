@@ -35,10 +35,13 @@ public sealed class CoreBridge : IDisposable
 
     public T? Decode<T>(JsonNode? node) => node is null ? default : node.Deserialize<T>(Json.Options);
 
+    /// <summary>Why the last <see cref="DecodeLast{T}"/> failed (for the error notice).</summary>
+    public string? LastDecodeError { get; private set; }
+
     public T? DecodeLast<T>()
     {
         try { return JsonSerializer.Deserialize<T>(LastReply, Json.Options); }
-        catch (JsonException e) { System.Diagnostics.Debug.WriteLine($"decode {typeof(T).Name}: {e.Message}"); return default; }
+        catch (JsonException e) { LastDecodeError = e.Message; System.Diagnostics.Debug.WriteLine($"decode {typeof(T).Name}: {e.Message}"); return default; }
     }
 
     public IntPtr MakeAudio(double sampleRate) => Native.meq_core_make_audio(_core, sampleRate);

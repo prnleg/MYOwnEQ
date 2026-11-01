@@ -16,7 +16,12 @@ public sealed class AppController : IDisposable
     public CoreState? State { get; private set; }
     public List<OutputDevice> Devices { get; private set; } = new();
     public OutputDevice? Current { get; private set; }
-    public string? Message { get; set; }
+    /// <summary>Toast message; clears itself after a few seconds (see <see cref="Notify"/>).</summary>
+    public (string Text, bool IsError)? Notice { get; private set; }
+    private DispatcherTimer? _noticeTimer;
+    /// <summary>Shared constants from the core (graphic frequencies, knob spots…).</summary>
+    public UiConstants? Constants { get; private set; }
+    private readonly DispatcherTimer _apoWatch;
     public List<FoundHost> Discovered { get; private set; } = new();
     public bool Discovering { get; private set; }
 
@@ -49,6 +54,10 @@ public sealed class AppController : IDisposable
     {
         _ui = ui;
         Core = new CoreBridge(CoreBridge.DataDir, CoreBridge.MachineId());
+        Core.Command("ui_constants");
+        Constants = Core.DecodeLast<UiConstants>();
+        // Who we are for the other machines in sync ("connected machines" list).
+        Core.Command("set_app_info", new { name = Environment.MachineName, platform = "windows", version = AppVersion });
         // Timers first: Reload() → Apply() → ScheduleApo() uses them.
         _apoDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
         _apoDebounce.Tick += (_, _) => { _apoDebounce.Stop(); WriteApo(); };
@@ -75,6 +84,12 @@ public sealed class AppController : IDisposable
         _syncTimer.Tick += (_, _) => SyncTick();
         _syncTimer.Start();
 
+        // Equalizer APO gets installed/configured outside the app: look again
+        // every 30 s until it's ready, so the setup card goes away by itself.
+        _apoWatch = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _apoWatch.Tick += (_, _) => { if (Apo.Status != ApoStatus.Ready) ApoRedetect(); };
+        _apoWatch.Start();
+
         UpdateReply(Core.Command("update_configure", new { version = AppVersion, platform = "windows" }));
         _updateTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(60) };
         _updateTimer.Tick += (_, _) => UpdateReply(Core.Command("update_tick"));
@@ -98,15 +113,26 @@ public sealed class AppController : IDisposable
     /// <summary>A verified update from the last session is waiting and auto-install is on.</summary>
     public bool ShouldInstallOnStart => Update is { IsReady: true } && Update.Auto != false;
 
+    /// <summary>Check now: the core answers "checking" right away; poll quickly while it
+    /// works so the spinner is live, then say how it went.</summary>
     public void CheckForUpdates()
     {
         UpdateReply(Core.Command("update_check"));
-        foreach (var delay in new[] { 2, 6, 15, 40 })
+        int n = 0;
+        var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(300) };
+        t.Tick += (_, _) =>
         {
-            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(delay) };
-            t.Tick += (_, _) => { t.Stop(); UpdateReply(Core.Command("update_tick")); };
-            t.Start();
-        }
+            UpdateReply(Core.Command("update_tick"));
+            if (Update is { IsBusy: true } && ++n < 600) return; // up to 3 min (downloads)
+            t.Stop();
+            switch (Update?.State)
+            {
+                case "up_to_date": Notify(UI.Loc.L("Up to date")); break;
+                case "ready": Notify(UI.Loc.L("Version %@ is ready. Restart to install.", Update.Version ?? "")); break;
+                case "error": Notify(UI.Loc.L("Update check failed: %@", Update.Message ?? ""), error: true); break;
+            }
+        };
+        t.Start();
     }
 
     public void SetAutoUpdate(bool on) => UpdateReply(Core.Command("update_set_auto", new { auto = on }));
@@ -117,8 +143,7 @@ public sealed class AppController : IDisposable
         if (Update is not { IsReady: true }) return false;
         var r = Core.Command("update_apply");
         if (r["ok"]?.GetValue<bool>() == true) { Update = null; return true; }
-        Message = r["error"]?.GetValue<string>();
-        Changed?.Invoke();
+        Notify(r["error"]?.GetValue<string>() ?? "?", error: true);
         return false;
     }
 
@@ -128,14 +153,15 @@ public sealed class AppController : IDisposable
     {
         if (reply["ok"]?.GetValue<bool>() == false)
         {
-            Message = reply["error"]?.GetValue<string>();
-            Changed?.Invoke();
+            Notify(reply["error"]?.GetValue<string>() ?? "?", error: true);
             return;
         }
         if (reply.ContainsKey("library"))
         {
             var s = Core.DecodeLast<CoreState>();
             if (s is not null) State = s;
+            // Never fail silently: an empty UI here looks like lost data.
+            else Notify(UI.Loc.L("Couldn't read the profile library (%@). Please report this bug.", Core.LastDecodeError ?? "?"), error: true);
             ScheduleApo();
             Changed?.Invoke();
         }
@@ -156,8 +182,7 @@ public sealed class AppController : IDisposable
         var text = Core.Command("apo_config")["text"]?.GetValue<string>();
         if (text is not null && !Apo.Write(text) && Apo.LastError is { } err)
         {
-            Message = "Equalizer APO: " + err;
-            Changed?.Invoke();
+            Notify("Equalizer APO: " + err, error: true);
         }
     }
 
@@ -279,7 +304,7 @@ public sealed class AppController : IDisposable
         if (asCorrection && name.EndsWith(" ParametricEQ", StringComparison.Ordinal)) name = name[..^" ParametricEQ".Length];
         var r = Core.Command("import_apo", new { text = System.IO.File.ReadAllText(path), name, as_correction = asCorrection });
         Apply(r);
-        if (r["warnings"] is JsonArray w && w.Count > 0) { Message = UI.Loc.L("%@: %@ lines skipped", name, w.Count); Changed?.Invoke(); }
+        if (r["warnings"] is JsonArray w && w.Count > 0) Notify(UI.Loc.L("%@: %@ lines skipped", name, w.Count));
     }
 
     public string? ExportApo(string profileId) => Core.Command("export_apo", new { profile = profileId })["text"]?.GetValue<string>();
@@ -303,21 +328,21 @@ public sealed class AppController : IDisposable
 
     public void ApoSetup(bool takeOver)
     {
-        try { Apo.Setup(takeOver); Message = null; }
-        catch (Exception e) { Message = "Setup failed: " + e.Message; Apo.Detect(); }
+        try { Apo.Setup(takeOver); }
+        catch (Exception e) { Notify(UI.Loc.L("Setup failed: %@", e.Message), error: true); Apo.Detect(); }
         ScheduleApo();
         Changed?.Invoke();
     }
 
     public void ApoFixPermissions()
     {
-        if (!Apo.FixPermissions()) Message = "Could not change permissions (UAC cancelled?)";
+        if (!Apo.FixPermissions()) Notify(UI.Loc.L("Could not change permissions (UAC cancelled?)"), error: true);
         Changed?.Invoke();
     }
 
     public void ApoRestore()
     {
-        Message = Apo.Restore() ? "Restored your previous Equalizer APO config" : "No backup found";
+        Notify(Apo.Restore() ? UI.Loc.L("Restored your previous Equalizer APO config") : UI.Loc.L("No backup found"));
         Changed?.Invoke();
     }
 
@@ -336,19 +361,23 @@ public sealed class AppController : IDisposable
         var r = Core.Command("sync_tick");
         if (r.ContainsKey("library")) { Apply(r); return; }
         var info = Core.Decode<SyncInfo>(r["sync"]);
-        if (info is not null && (info.Status != State.Sync.Status || info.Pending != State.Sync.Pending || info.Detail != State.Sync.Detail))
+        if (info is not null && (info.Status != State.Sync.Status || info.Pending != State.Sync.Pending || info.Detail != State.Sync.Detail
+                                 || PeersKey(info) != PeersKey(State.Sync)))
         {
             State.Sync = info;
             Changed?.Invoke();
         }
     }
 
+    private static string PeersKey(SyncInfo s) =>
+        string.Join("|", (s.Peers ?? new()).Select(p => $"{p.Machine}:{p.Online}:{p.LastSeen}:{p.Name}"));
+
     public void ConfigureSync(string mode, string url = "", string token = "", int port = 7878)
     {
         object cfg = mode switch
         {
             "server" => new { mode, url = url.Trim(), token = token.Trim() },
-            "host" => new { mode, port, token = string.IsNullOrEmpty(token) ? PairingCode() : token },
+            "host" => new { mode, port, token }, // empty: the core makes a pairing code
             _ => new { mode = "off" },
         };
         Apply(Core.Command("sync_configure", new { config = cfg }));
@@ -363,12 +392,44 @@ public sealed class AppController : IDisposable
         Changed?.Invoke();
     }
 
-    public static string PairingCode()
+
+    // ---------------------------------------------------------------- notices
+
+    /// <summary>Show a toast; it clears itself (errors stay longer).</summary>
+    public void Notify(string text, bool error = false)
     {
-        const string alphabet = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
-        var chars = Enumerable.Range(0, 8).Select(_ => alphabet[Random.Shared.Next(alphabet.Length)]).ToArray();
-        return new string(chars, 0, 4) + "-" + new string(chars, 4, 4);
+        Notice = (text, error);
+        _noticeTimer?.Stop();
+        _noticeTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(error ? 12 : 6) };
+        _noticeTimer.Tick += (_, _) => { _noticeTimer.Stop(); Notice = null; Changed?.Invoke(); };
+        _noticeTimer.Start();
+        Changed?.Invoke();
     }
+
+    public void DismissNotice() { Notice = null; Changed?.Invoke(); }
+
+    // ---------------------------------------------------------------- shared editing logic (in the core)
+
+    /// <summary>Edited preset → new profile "Name (mine)" (presets are read-only). Returns it.</summary>
+    public Profile? ForkPreset(Profile draft, string originalName)
+    {
+        var r = Core.Command("fork_preset", new { draft, name = UI.Loc.L("%@ (mine)", originalName) });
+        Apply(r);
+        return Core.Decode<Profile>(r["profile"]);
+    }
+
+    /// <summary>Switch EQ layout keeping the sound ("parametric" | "graphic10" | "graphic31").</summary>
+    public EqLayer? ConvertEq(EqLayer eq, string to, string profileId) =>
+        // Anonymous type (not object/dictionary): keeps EqLayer's "type" discriminator.
+        Core.Decode<EqLayer>(Core.Command("convert_eq", new { profile = profileId, eq, to })["eq"]);
+
+    /// <summary>Where a new band should go (null when it doesn't fit).</summary>
+    public Band? SuggestBand(EqLayer eq) =>
+        Core.Decode<Band>(Core.Command("suggest_band", new { eq })["band"]);
+
+    /// <summary>Friendly name of a machine id (from the sync's machine list).</summary>
+    public string MachineName(string id) =>
+        id == State?.Machine ? Environment.MachineName : State?.Sync.Peers?.FirstOrDefault(p => p.Machine == id)?.DisplayName ?? id;
 
     // ---------------------------------------------------------------- derived
 
@@ -395,6 +456,7 @@ public sealed class AppController : IDisposable
     {
         _syncTimer.Stop();
         _updateTimer.Stop();
+        _apoWatch.Stop();
         _loopback?.Dispose();
         _apps.Dispose();
         _audio.Dispose();

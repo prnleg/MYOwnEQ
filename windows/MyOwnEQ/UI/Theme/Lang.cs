@@ -17,6 +17,7 @@ public sealed class LangPack
 }
 
 /// <summary>UI language. Keys are the English text, so a missing translation shows English.</summary>
+// parity: languages
 public sealed class Lang
 {
     public List<LangPack> Packs { get; private set; } = new();
@@ -28,9 +29,10 @@ public sealed class Lang
 
     public event Action? Changed;
 
-    public Lang(string? choice)
+    public Lang(string? choice, CoreBridge? core = null)
     {
         Choice = choice;
+        _core = core;
         Reload();
     }
 
@@ -42,51 +44,35 @@ public sealed class Lang
         Apply();
     }
 
+    /// <summary>Parsing, merge rules and language choice live in the core (same for every app).</summary>
+    private readonly CoreBridge? _core;
+    private string _resolved = "en-US";
+
     public void Reload()
     {
-        var byCode = new Dictionary<string, LangPack> { ["en-US"] = new() { Code = "en-US", Name = "English (US)", Author = "MyOwnEQ" } };
-        var errors = new List<string>();
-        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        foreach (var dir in ThemeStore.SearchDirs("Lang"))
+        if (_core is null) { Apply(); return; }
+        var r = _core.Command("load_langs", new
         {
-            if (!Directory.Exists(dir)) continue;
-            foreach (var f in Directory.GetFiles(dir, "*.json"))
-            {
-                try
-                {
-                    var p = JsonSerializer.Deserialize<LangPack>(File.ReadAllText(f), opts);
-                    if (p is null || string.IsNullOrWhiteSpace(p.Code)) throw new InvalidDataException("missing code");
-                    // User packs extend/override bundled ones key by key.
-                    if (byCode.TryGetValue(p.Code, out var existing))
-                    {
-                        foreach (var kv in p.Strings) existing.Strings[kv.Key] = kv.Value;
-                        existing.Name = p.Name;
-                    }
-                    else byCode[p.Code] = p;
-                }
-                catch (Exception e) { errors.Add($"{Path.GetFileName(f)}: {e.Message}"); }
-            }
-        }
-        Packs = byCode.Values.OrderBy(p => p.Name, StringComparer.CurrentCulture).ToList();
-        LoadErrors = errors;
+            dirs = ThemeStore.SearchDirs("Lang").ToList(),
+            choice = Choice,
+            preferred = new[] { CultureInfo.CurrentUICulture.Name },
+        });
+        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+        Packs = r["packs"]?.Deserialize<List<LangPack>>(opts) ?? new() { new() { Code = "en-US", Name = "English (US)" } };
+        LoadErrors = r["errors"]?.Deserialize<List<string>>() ?? new();
+        _resolved = r["code"]?.GetValue<string>() ?? "en-US";
         Apply();
     }
 
     private void Apply()
     {
-        var wanted = Choice ?? SystemMatch(Packs.Select(p => p.Code).ToList()) ?? "en-US";
-        var pack = Packs.FirstOrDefault(p => p.Code == wanted) ?? Packs.First(p => p.Code == "en-US");
+        var wanted = Choice ?? _resolved;
+        var pack = Packs.FirstOrDefault(p => p.Code == wanted) ?? Packs.FirstOrDefault(p => p.Code == "en-US") ?? new LangPack { Code = "en-US" };
         _table = pack.Strings;
         Code = pack.Code;
         Changed?.Invoke();
     }
 
-    private static string? SystemMatch(List<string> codes)
-    {
-        var ui = CultureInfo.CurrentUICulture;
-        return codes.FirstOrDefault(c => c.Equals(ui.Name, StringComparison.OrdinalIgnoreCase))
-            ?? codes.FirstOrDefault(c => c.StartsWith(ui.TwoLetterISOLanguageName + "-", StringComparison.OrdinalIgnoreCase));
-    }
 }
 
 /// <summary><c>using static MyOwnEQ.UI.Loc;</c>, then call L with the English text as the key.</summary>

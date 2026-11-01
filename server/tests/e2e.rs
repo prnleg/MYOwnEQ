@@ -4,7 +4,7 @@ use myowneq_model::{Library, Profile};
 use myowneq_server::EmbeddedServer;
 use myowneq_sync::client::{Event, SyncClient};
 use myowneq_sync::entity::snapshot;
-use myowneq_sync::Replica;
+use myowneq_sync::{Peer, PeerInfo, Replica};
 use std::time::{Duration, Instant};
 
 struct Node {
@@ -13,6 +13,7 @@ struct Node {
     client: SyncClient,
     connected: bool,
     rejected: bool,
+    peers: Vec<Peer>,
 }
 
 impl Node {
@@ -20,13 +21,19 @@ impl Node {
         let lib = Library::with_presets();
         let mut rep = Replica::new(machine);
         rep.seed(&lib, false);
-        let client = SyncClient::start(&format!("127.0.0.1:{port}"), token, machine, 0);
+        let info = PeerInfo {
+            name: format!("{machine} computer"),
+            platform: machine.into(),
+            version: "1.2.3".into(),
+        };
+        let client = SyncClient::start(&format!("127.0.0.1:{port}"), token, machine, info, 0);
         Node {
             lib,
             rep,
             client,
             connected: false,
             rejected: false,
+            peers: vec![],
         }
     }
 
@@ -52,6 +59,7 @@ impl Node {
                 Event::Ack(a) => self.rep.ack(&a),
                 Event::Rejected(_) => self.rejected = true,
                 Event::Disconnected(_) => self.connected = false,
+                Event::Peers(p) => self.peers = p,
             }
         }
     }
@@ -109,12 +117,34 @@ fn two_clients_converge_through_real_server() {
             && snapshot(&mac.lib) == snapshot(&pc.lib)
     });
 
-    // Wrong token is rejected.
+    // Presence: each side sees the other online, with name / platform / version.
+    wait(|| {
+        mac.pump();
+        pc.pump();
+        mac.peers.iter().any(|p| {
+            p.machine == "pc"
+                && p.online
+                && p.info.name == "pc computer"
+                && p.info.version == "1.2.3"
+        }) && pc.peers.iter().any(|p| p.machine == "mac" && p.online)
+    });
+    // PC quits -> Mac sees it offline (still listed, with last_seen).
+    drop(pc);
+    wait(|| {
+        mac.pump();
+        mac.peers
+            .iter()
+            .any(|p| p.machine == "pc" && !p.online && p.last_seen > 0)
+    });
+
+    // Wrong token is rejected (and never listed as a machine).
     let mut bad = Node::new("intruder", server.port, "nope-nope");
     wait(|| {
         bad.pump();
         bad.rejected
     });
+    mac.pump();
+    assert!(!mac.peers.iter().any(|p| p.machine == "intruder"));
 
     drop(server);
     std::fs::remove_dir_all(dir).ok();

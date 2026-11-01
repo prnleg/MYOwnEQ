@@ -33,8 +33,9 @@ struct MyOwnEQApp: App {
                 exit(1)
             }
         }
-        _controller = StateObject(wrappedValue: AppController())
-        _theme = StateObject(wrappedValue: ThemeStore())
+        let c = AppController()
+        _controller = StateObject(wrappedValue: c)
+        _theme = StateObject(wrappedValue: ThemeStore(core: c.core))
     }
 
     var body: some Scene {

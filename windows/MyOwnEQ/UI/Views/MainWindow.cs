@@ -24,6 +24,8 @@ public sealed class MainWindow : Window
     private readonly Grid _root = new();
     private readonly ContentControl _sidebarHost = new();
     private readonly ContentControl _detail = new();
+    private readonly TitleBar _titleBar;
+    private readonly ContentControl _toastHost = new() { Margin = new Thickness(0, 0, 0, 18), IsTabStop = false };
     private Nav? _nav;
     private ProfileEditor? _editor;
     private UIElement? _page;
@@ -46,7 +48,11 @@ public sealed class MainWindow : Window
 
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(290) });
         _root.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        // Row 0: our blended title bar strip; row 1: the app.
+        _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(TitleBar.Height) });
+        _root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         Content = _root;
+        _titleBar = TitleBar.Attach(this);
 
         _c.Changed += OnStateChanged;
         Ui.Store.Changed += Restyle;
@@ -85,6 +91,7 @@ public sealed class MainWindow : Window
         Background = Theme.Frozen(Ui.T.BaseColor);
         var bg = new ThemeBackground(_c);
         Grid.SetColumnSpan(bg, 2);
+        Grid.SetRowSpan(bg, 2);
         _root.Children.Add(bg);
 
         var side = new Border
@@ -93,11 +100,24 @@ public sealed class MainWindow : Window
             BorderBrush = Ui.T.InkBrush(0.08),
             BorderThickness = new Thickness(0, 0, 1, 0),
             Child = _sidebarHost,
+            Padding = new Thickness(0, TitleBar.Height, 0, 0), // sidebar color runs under the title bar
         };
         Grid.SetColumn(side, 0);
+        Grid.SetRowSpan(side, 2);
         _root.Children.Add(side);
         Grid.SetColumn(_detail, 1);
+        Grid.SetRow(_detail, 1);
         _root.Children.Add(_detail);
+        var captions = _titleBar.Buttons();
+        Grid.SetColumn(captions, 1);
+        _root.Children.Add(captions);
+        // Toast over the page (bottom center).
+        _toastHost.VerticalAlignment = VerticalAlignment.Bottom;
+        _toastHost.HorizontalAlignment = HorizontalAlignment.Center;
+        Grid.SetColumn(_toastHost, 1);
+        Grid.SetRow(_toastHost, 1);
+        _root.Children.Add(_toastHost);
+        ShowToast();
         BuildSidebar();
     }
 
@@ -110,8 +130,21 @@ public sealed class MainWindow : Window
         else if (_nav is not null) ShowPage(_nav, animate: false);
     }
 
+    private object? _shownNotice;
+
+    private void ShowToast()
+    {
+        var n = _c.Notice;
+        if (Equals(n, _shownNotice) && _toastHost.Content is not null == n is not null) return;
+        _shownNotice = n;
+        var toast = Ui.Toast(_c);
+        _toastHost.Content = toast;
+        if (toast is not null) Ui.Appear(toast);
+    }
+
     private void OnStateChanged()
     {
+        ShowToast();
         BuildSidebar();
         if (_editor is not null) _editor.OnStateChanged();
         else if (_page is FrameworkElement fe && !fe.IsKeyboardFocusWithin && _nav is not null && _nav.Kind != "preferences")
@@ -180,6 +213,7 @@ public sealed class MainWindow : Window
 
     // ------------------------------------------------------------ sidebar
 
+    // parity: sidebar
     private void BuildSidebar()
     {
         var s = _c.State;
@@ -316,6 +350,7 @@ public sealed class MainWindow : Window
         return row;
     }
 
+    // parity: rename
     private ContextMenu ProfileMenu(Profile p)
     {
         bool preset = p.Tags.Contains("builtin");
@@ -334,6 +369,7 @@ public sealed class MainWindow : Window
         Item(L("Duplicate"), () => Duplicate(p));
         Item(L("Export Equalizer APO…"), () => Export(p));
         m.Items.Add(new Separator());
+        // parity: delete-confirm
         Item(L("Delete"), () =>
         {
             if (MessageBox.Show(this, L("Delete “%@”? This syncs to your other machines.", p.Name), "MyOwnEQ", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return;

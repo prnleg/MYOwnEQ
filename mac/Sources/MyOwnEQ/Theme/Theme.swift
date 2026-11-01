@@ -96,6 +96,7 @@ enum LogoStyle: String, CaseIterable, Identifiable {
 
 /// Owns the theme list, the current theme and the motion preferences.
 @MainActor
+// parity: themes
 final class ThemeStore: ObservableObject {
     @Published private(set) var themes: [Theme] = []
     @Published private(set) var current: Theme = .fallback
@@ -114,7 +115,8 @@ final class ThemeStore: ObservableObject {
 
     private let d = UserDefaults.standard
 
-    init() {
+    init(core: CoreBridge? = nil) {
+        self.core = core
         logo = LogoStyle(rawValue: d.string(forKey: "logo") ?? "") ?? .wave
         motion = d.object(forKey: "motion") as? Bool ?? true
         reactive = d.object(forKey: "reactive") as? Bool ?? true
@@ -131,11 +133,18 @@ final class ThemeStore: ObservableObject {
     }
 
     /// Ask for an image, store it as a 512 px PNG and switch to it.
+    // parity: custom-logo
     func chooseCustomLogo() {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.png, .jpeg, .tiff, .heic, .svg, .image]
         panel.message = L("Choose an image for your logo (square, transparent PNG works best)")
-        guard panel.runModal() == .OK, let url = panel.url, let img = NSImage(contentsOf: url) else { return }
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        guard let img = NSImage(contentsOf: url) else {
+            let a = NSAlert()
+            a.messageText = L("That image couldn't be read.")
+            a.runModal()
+            return
+        }
         let side: CGFloat = 512
         let scale = min(side / max(img.size.width, 1), side / max(img.size.height, 1))
         let w = img.size.width * scale, h = img.size.height * scale
@@ -167,25 +176,26 @@ final class ThemeStore: ObservableObject {
         d.set(id, forKey: "theme")
     }
 
+    /// Parsing, validation and override rules live in the core (same for every app).
+    private let core: CoreBridge?
+
     func reload() {
-        var byId: [String: Theme] = [Theme.fallback.id: .fallback]
-        var order: [String] = [Theme.fallback.id]
+        var themes: [Theme] = [.fallback]
         var errors: [String] = []
-        for dir in Self.searchDirs() {
-            let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-            for f in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) where f.pathExtension == "json" {
+        if let core {
+            let r = core.command("load_themes", ["dirs": Self.searchDirs().map(\.path)])
+            for raw in r["themes"] as? [Any] ?? [] {
+                guard let d = try? JSONSerialization.data(withJSONObject: raw) else { continue }
                 do {
-                    let t = try JSONDecoder().decode(Theme.self, from: Data(contentsOf: f))
-                    if byId[t.id] == nil { order.append(t.id) }
-                    byId[t.id] = t
-                } catch {
-                    errors.append("\(f.lastPathComponent): \(error.localizedDescription)")
-                }
+                    let t = try JSONDecoder().decode(Theme.self, from: d)
+                    if let i = themes.firstIndex(where: { $0.id == t.id }) { themes[i] = t } else { themes.append(t) }
+                } catch { errors.append("\(error.localizedDescription)") }
             }
+            errors += r["errors"] as? [String] ?? []
         }
-        themes = order.compactMap { byId[$0] }
+        self.themes = themes
         loadErrors = errors
-        current = byId[d.string(forKey: "theme") ?? ""] ?? byId[current.id] ?? .fallback
+        current = themes.first { $0.id == d.string(forKey: "theme") } ?? themes.first { $0.id == current.id } ?? .fallback
     }
 
     static var userDir: URL {

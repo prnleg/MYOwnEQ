@@ -2,7 +2,7 @@
 //! thread; the app talks to it through non-blocking channels and polls
 //! events from its UI loop.
 
-use crate::proto::{Acked, ClientMsg, Op, SeqOp, ServerMsg};
+use crate::proto::{Acked, ClientMsg, Op, Peer, PeerInfo, SeqOp, ServerMsg};
 use futures_util::{SinkExt, StreamExt};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{mpsc, Arc};
@@ -18,6 +18,8 @@ pub enum Event {
     },
     Ops(Vec<SeqOp>),
     Ack(Vec<Acked>),
+    /// Machines using this server (online now or seen before).
+    Peers(Vec<Peer>),
     /// Connection dropped or failed; the client retries with backoff.
     Disconnected(String),
     /// Server refused us (bad token). Retries slowly.
@@ -66,7 +68,7 @@ pub fn normalize_url(input: &str) -> String {
 }
 
 impl SyncClient {
-    pub fn start(url: &str, token: &str, machine: &str, since: u64) -> SyncClient {
+    pub fn start(url: &str, token: &str, machine: &str, info: PeerInfo, since: u64) -> SyncClient {
         let url = normalize_url(url);
         let (tx, mut cmd_rx) = tmpsc::unbounded_channel();
         let (ev_tx, rx) = mpsc::channel();
@@ -90,7 +92,7 @@ impl SyncClient {
                         return;
                     }
                 };
-                rt.block_on(run(u, t, m, s, &mut cmd_rx, ev_tx));
+                rt.block_on(run(u, t, m, info, s, &mut cmd_rx, ev_tx));
             })
             .ok();
         SyncClient {
@@ -132,13 +134,14 @@ async fn run(
     url: String,
     token: String,
     machine: String,
+    info: PeerInfo,
     since: Arc<AtomicU64>,
     cmds: &mut tmpsc::UnboundedReceiver<Cmd>,
     events: mpsc::Sender<Event>,
 ) {
     let mut backoff = 1u64;
     loop {
-        let outcome = session(&url, &token, &machine, &since, cmds, &events).await;
+        let outcome = session(&url, &token, &machine, &info, &since, cmds, &events).await;
         let wait = match outcome {
             Outcome::Shutdown => return,
             Outcome::Dropped(e) => {
@@ -183,6 +186,7 @@ async fn session(
     url: &str,
     token: &str,
     machine: &str,
+    info: &PeerInfo,
     since: &AtomicU64,
     cmds: &mut tmpsc::UnboundedReceiver<Cmd>,
     events: &mpsc::Sender<Event>,
@@ -202,6 +206,7 @@ async fn session(
         token: token.into(),
         machine: machine.into(),
         since: since.load(Ordering::Relaxed),
+        info: info.clone(),
     };
     if let Err(e) = sink
         .send(Message::Text(
@@ -255,6 +260,9 @@ async fn session(
                     }
                     Ok(ServerMsg::Ack { acked }) => {
                         let _ = events.send(Event::Ack(acked));
+                    }
+                    Ok(ServerMsg::Peers { peers }) => {
+                        let _ = events.send(Event::Peers(peers));
                     }
                     Ok(ServerMsg::Error { msg }) => {
                         return if connected { Outcome::WasConnected(msg) } else { Outcome::Rejected(msg) };

@@ -16,7 +16,7 @@ pub mod proto;
 pub mod replica;
 pub mod stamp;
 
-pub use proto::{Acked, ClientMsg, Op, SeqOp, ServerMsg};
+pub use proto::{Acked, ClientMsg, Op, Peer, PeerInfo, SeqOp, ServerMsg};
 pub use replica::Replica;
 pub use stamp::{Clock, Stamp};
 

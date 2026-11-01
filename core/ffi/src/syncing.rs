@@ -6,7 +6,7 @@ use myowneq_server::EmbeddedServer;
 use myowneq_sync::client::{Event, SyncClient};
 use myowneq_sync::discovery::Advertiser;
 use myowneq_sync::entity::{snapshot, Snapshot};
-use myowneq_sync::Replica;
+use myowneq_sync::{Peer, PeerInfo, Replica};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -31,6 +31,10 @@ pub struct SyncGlue {
     host: Option<(EmbeddedServer, Option<Advertiser>)>,
     status: &'static str,
     detail: String,
+    /// What this machine tells the server about itself (name, platform, version).
+    info: PeerInfo,
+    /// Machines using the same sync, from the server.
+    peers: Vec<Peer>,
 }
 
 impl SyncGlue {
@@ -55,13 +59,33 @@ impl SyncGlue {
             host: None,
             status: "off",
             detail: String::new(),
+            info: PeerInfo::default(),
+            peers: Vec::new(),
         };
         g.apply_config(config);
         g
     }
 
+    /// Name / platform / version shown to the other machines. Reconnects if it changed.
+    pub fn set_info(&mut self, info: PeerInfo) {
+        if info == self.info {
+            return;
+        }
+        self.info = info;
+        if self.config != SyncConfig::Off {
+            self.apply_config(self.config.clone());
+        }
+    }
+
     /// Switch mode. Starts/stops the embedded host and the client.
-    pub fn apply_config(&mut self, config: SyncConfig) {
+    /// Hosting without a token gets a fresh pairing code ("7KQ2-M9XD").
+    pub fn apply_config(&mut self, mut config: SyncConfig) {
+        if let SyncConfig::Host { token, .. } = &mut config {
+            if token.trim().is_empty() {
+                *token = myowneq_server::pairing_code();
+            }
+        }
+        self.peers.clear();
         self.client = None;
         self.host = None;
         self.detail.clear();
@@ -73,6 +97,7 @@ impl SyncGlue {
                     url,
                     token,
                     &self.machine,
+                    self.info.clone(),
                     self.replica.since,
                 ));
                 self.status = "connecting";
@@ -91,6 +116,7 @@ impl SyncGlue {
                             &url,
                             token,
                             &self.machine,
+                            self.info.clone(),
                             self.replica.since,
                         ));
                         self.host = Some((server, adv));
@@ -152,6 +178,7 @@ impl SyncGlue {
                     self.status = "error";
                     self.detail = e;
                 }
+                Event::Peers(p) => self.peers = p,
             }
         }
         if dirty {
@@ -182,6 +209,7 @@ impl SyncGlue {
             "host_port": port,
             "host_addresses": port.map(|p| local_ips().into_iter().map(|ip| format!("{ip}:{p}")).collect::<Vec<_>>()),
             "pending": self.replica.outbox.len(),
+            "peers": self.peers,
         })
     }
 

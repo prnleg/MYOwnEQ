@@ -34,6 +34,14 @@ impl Default for EqLayer {
     }
 }
 
+/// Easy-mode knobs: (name, center frequency). The apps draw a dot per knob here.
+pub const MACRO_SPOTS: [(&str, f64); 4] = [
+    ("Bass", 105.0),
+    ("Mids", 1000.0),
+    ("Clarity", 3000.0),
+    ("Treble", 8000.0),
+];
+
 pub const GRAPHIC_10: [f64; 10] = [
     32.0, 64.0, 125.0, 250.0, 500.0, 1000.0, 2000.0, 4000.0, 8000.0, 16000.0,
 ];
@@ -105,10 +113,10 @@ pub struct Macros {
 impl Macros {
     pub fn to_bands(&self) -> Vec<Band> {
         [
-            Band::low_shelf(105.0, self.bass, 0.707),
-            Band::peak(1000.0, self.mids, 0.7),
-            Band::peak(3000.0, self.clarity, 1.0),
-            Band::high_shelf(8000.0, self.treble, 0.707),
+            Band::low_shelf(MACRO_SPOTS[0].1, self.bass, 0.707),
+            Band::peak(MACRO_SPOTS[1].1, self.mids, 0.7),
+            Band::peak(MACRO_SPOTS[2].1, self.clarity, 1.0),
+            Band::high_shelf(MACRO_SPOTS[3].1, self.treble, 0.707),
         ]
         .into_iter()
         .filter(|b| b.gain_db != 0.0)

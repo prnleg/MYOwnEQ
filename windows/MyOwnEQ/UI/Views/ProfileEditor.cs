@@ -179,6 +179,7 @@ public sealed class ProfileEditor : ScrollViewer
         else _unsavedHost.Content = null;
     }
 
+    // parity: hold-to-listen
     private UIElement HoldToListen()
     {
         var t = Ui.T;
@@ -229,16 +230,18 @@ public sealed class ProfileEditor : ScrollViewer
     }
 
     /// <summary>Presets are read-only (the core ignores writes): the first edit makes a copy.</summary>
+    // parity: preset-fork
     private void ForkIfPreset(bool wasActive)
     {
         if (!IsPreset) return;
         var original = _c.State?.FindProfile(_draft.Id);
-        _draft.Id = Profile.NewId();
-        _draft.Name = L("%@ (mine)", original?.Name ?? _draft.Name);
-        _draft.Tags.Remove("builtin");
-        _c.Save(Json.Clone(_draft));
+        // The core makes the copy (and keeps it playing if the preset was).
+        if (_c.ForkPreset(_draft, original?.Name ?? _draft.Name) is not { } copy) return;
+        // Same object stays (the curve edits it in place): take the copy's identity.
+        _draft.Id = copy.Id;
+        _draft.Name = copy.Name;
+        _draft.Tags = copy.Tags;
         _savedJson = Ser(_draft);
-        if (wasActive) _c.Select(_draft.Id);
         _onFork(_draft.Id);
         // Update in place (no rebuild: a drag on the curve may be in progress).
         if (_nameBox is not null) { _nameBox.IsReadOnly = false; _nameBox.Text = _draft.Name; _nameBox.ToolTip = L("Rename"); }
@@ -246,6 +249,7 @@ public sealed class ProfileEditor : ScrollViewer
         if (_presetNote is not null) _presetNote.Visibility = Visibility.Collapsed;
     }
 
+    // parity: auto-save
     public void Commit()
     {
         if (!Dirty) return;
@@ -295,6 +299,7 @@ public sealed class ProfileEditor : ScrollViewer
 }
 
 /// <summary>Bass / Mids / Clarity / Treble, headphone correction, comfort (EasyPanel).</summary>
+// parity: easy-panel
 public sealed class EasyPanel : StackPanel
 {
     public EasyPanel(AppController c, Profile p, Action edited)
@@ -362,6 +367,7 @@ public sealed class EasyPanel : StackPanel
 }
 
 /// <summary>Open-file dialog for AutoEQ / Equalizer APO imports.</summary>
+// parity: imports
 public static class ImportDialog
 {
     public static void Run(AppController c, bool asCorrection)

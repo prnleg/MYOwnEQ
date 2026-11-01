@@ -288,6 +288,8 @@ impl Updater {
             }
             *b = true;
         }
+        // Visible immediately: the reply to "check now" already says "checking".
+        *self.status.lock().expect("status") = Status::Checking;
         let (status, busy) = (self.status.clone(), self.busy.clone());
         let (url, pk, cur, plat, dir) = (
             self.manifest_url.clone(),

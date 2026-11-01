@@ -10,6 +10,7 @@ namespace MyOwnEQ.UI;
 
 /// <summary>Tray flyout (QuickPanel in the Mac app): device, on/off, why-this-profile,
 /// live mini curve, volume, favorite chips, Easy knobs.</summary>
+// parity: tray-panel
 public sealed class QuickPanel : Window
 {
     private readonly AppController _c;
@@ -74,7 +75,8 @@ public sealed class QuickPanel : Window
         var devName = Ui.Text(s?.CurrentGroup?.Name ?? _c.Current?.Name ?? L("No output"), 14, FontWeights.SemiBold);
         devName.TextTrimming = TextTrimming.CharacterEllipsis;
         devName.TextWrapping = TextWrapping.NoWrap;
-        var sub = Ui.Secondary(_c.Apo.Status == Platform.ApoStatus.Ready ? L("EQ on") : L("Equalizer APO needs setup"), 11.5);
+        var sub = Ui.Secondary(_c.Apo.Status != Platform.ApoStatus.Ready ? L("Equalizer APO needs setup")
+                               : (s?.Enabled ?? true) ? L("EQ on") : L("EQ off"), 11.5);
         var sw = new ToggleSwitch(s?.Enabled ?? true);
         sw.Toggled += on => _c.SetEnabled(on);
         var right = Ui.HStack(8);
@@ -144,7 +146,7 @@ public sealed class QuickPanel : Window
             Ui.HStack(8, Ui.Button(L("Editor"), _openEditor, prominent: true, glyph: Ui.GEdit), ImportMenu()),
             Ui.Button(L("Quit"), _quit));
         Add(footer);
-        if (_c.Message is { } m) Add(Ui.Secondary(m, 11));
+        if (Ui.Toast(_c) is { } toast) Add(toast);
     }
 
     private void Add(UIElement e) => Ui.Add(_content, e, 12, horizontal: false);
@@ -190,16 +192,8 @@ public sealed class QuickPanel : Window
                 if (on || _draft is null) return;
                 var d = _draft;
                 _draft = null;
-                if (d.Tags.Contains("builtin"))
-                {
-                    // Presets never change: the tweak becomes a new profile.
-                    var baseName = d.Name;
-                    d.Id = Profile.NewId();
-                    d.Name = L("%@ (mine)", baseName);
-                    d.Tags.Remove("builtin");
-                    _c.Save(d);
-                    _c.Select(d.Id);
-                }
+                // Presets never change: the core turns the tweak into a new profile.
+                if (d.Tags.Contains("builtin")) _c.ForkPreset(d, d.Name);
                 else _c.Save(d);
                 _c.Preview(null);
             };

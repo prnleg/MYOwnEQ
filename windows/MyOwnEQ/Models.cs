@@ -184,6 +184,30 @@ public sealed class SyncInfo
     public int? HostPort { get; set; }
     public List<string>? HostAddresses { get; set; }
     public int Pending { get; set; }
+    /// <summary>Machines using this sync (from the server), online or seen before.</summary>
+    public List<Peer>? Peers { get; set; }
+}
+
+/// <summary>A machine in the sync, as the server reports it.</summary>
+public sealed class Peer
+{
+    public string Machine { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Platform { get; set; } = "";
+    public string Version { get; set; } = "";
+    public bool Online { get; set; }
+    public ulong LastSeen { get; set; }
+    [JsonIgnore] public string DisplayName => Name.Length > 0 ? Name : Machine;
+}
+
+/// <summary>Shared constants from the core (<c>ui_constants</c>).</summary>
+public sealed class UiConstants
+{
+    public sealed class Spot { public string Name { get; set; } = ""; public double Freq { get; set; } }
+    public List<double> Graphic10 { get; set; } = new();
+    public List<double> Graphic31 { get; set; } = new();
+    public List<Spot> Macros { get; set; } = new();
+    public int MaxBands { get; set; } = 64;
 }
 
 /// <summary>Updater status. State: off | idle | checking | up_to_date | downloading | ready | error.</summary>
@@ -198,6 +222,8 @@ public sealed class UpdateInfo
     public long? CheckedAt { get; set; }
 
     [JsonIgnore] public bool IsReady => State == "ready";
+    /// <summary>Checking or downloading right now (show a spinner).</summary>
+    [JsonIgnore] public bool IsBusy => State is "checking" or "downloading";
     [JsonIgnore] public string Label => State switch
     {
         "checking" => "Checking for updates…",

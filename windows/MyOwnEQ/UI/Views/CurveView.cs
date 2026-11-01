@@ -27,6 +27,7 @@ internal sealed class DrawLayer : FrameworkElement
 /// Pro graphic = drag each slider up/down, Easy = Bass/Mids/Clarity/Treble dots.
 /// The profile is mutated in place; <see cref="ProfileEdited"/> fires after each change.
 /// </summary>
+// parity: curve
 public sealed class CurveView : Grid
 {
     public enum Edit { None, Easy, Pro }
@@ -119,14 +120,19 @@ public sealed class CurveView : Grid
     private enum HKind { Band, Point, Macro }
     private readonly record struct Handle(HKind Kind, int Index, Point Pt, bool Enabled);
 
+    // parity: curve-edit
     private List<Handle> Handles()
     {
         var hs = new List<Handle>();
         switch (_edit)
         {
             case Edit.Easy:
+                // Knob frequencies come from the core (same dots on every platform).
                 for (int i = 0; i < MacroSpots.Length; i++)
-                    hs.Add(new Handle(HKind.Macro, i, new Point(X(MacroSpots[i].freq), Y(MacroSpots[i].get(_profile.Macros))), true));
+                {
+                    double f = _c.Constants?.Macros.ElementAtOrDefault(i)?.Freq ?? MacroSpots[i].freq;
+                    hs.Add(new Handle(HKind.Macro, i, new Point(X(f), Y(MacroSpots[i].get(_profile.Macros))), true));
+                }
                 break;
             case Edit.Pro when _profile.Eq is ParametricLayer pl:
                 for (int i = 0; i < pl.Bands.Count; i++)
@@ -582,6 +588,7 @@ public sealed class CurveView : Grid
 
     protected override void OnMouseLeave(MouseEventArgs e) { if (_dragging is null) _hover = null; }
 
+    // parity: curve-q-wheel
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
         int? idx = Selected ?? (_hover is int hv && hv < Handles().Count && Handles()[hv].Kind == HKind.Band ? Handles()[hv].Index : null);

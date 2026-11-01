@@ -1,3 +1,4 @@
+import ServiceManagement
 import SwiftUI
 
 struct AppearanceSettings: View {
@@ -97,6 +98,7 @@ struct AppearanceSettings: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
+                // parity: motion-settings
                 Card(title: L("Motion"), icon: "sparkles") {
                     Toggle(L("Smooth animations (springy curve, morphing, ripples)"), isOn: $theme.motion)
                     Toggle(L("React to music (glow and background pulse)"), isOn: $theme.reactive)
@@ -107,6 +109,11 @@ struct AppearanceSettings: View {
                     }
                 }
                 .toggleStyle(.switch)
+
+                // parity: start-with-system
+                Card(title: L("System"), icon: "power") {
+                    LoginItemToggle()
+                }
             }
             .padding(20)
         }
@@ -166,5 +173,27 @@ struct ThemeCard: View {
         .shadow(color: selected ? t.accentColor.opacity(0.45) : .black.opacity(0.15), radius: selected ? 10 : 4, y: 3)
         .scaleEffect(selected ? 1.02 : 1)
         .contentShape(Rectangle())
+    }
+}
+
+/// "Open at login" via the system's login items (SMAppService).
+struct LoginItemToggle: View {
+    @State private var on = SMAppService.mainApp.status == .enabled
+    @State private var error: String?
+
+    var body: some View {
+        Toggle(L("Open MyOwnEQ at login"), isOn: Binding(get: { on }, set: { want in
+            do {
+                if want { try SMAppService.mainApp.register() } else { try SMAppService.mainApp.unregister() }
+                error = nil
+            } catch {
+                self.error = error.localizedDescription
+            }
+            on = SMAppService.mainApp.status == .enabled
+        }))
+        .toggleStyle(.switch)
+        if let error {
+            Label(error, systemImage: "exclamationmark.triangle.fill").font(.caption).foregroundStyle(.orange)
+        }
     }
 }

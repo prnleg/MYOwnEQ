@@ -46,6 +46,7 @@ final class CurveAnim {
 /// - Pro, parametric: drag band dots (Option-drag = Q), double-click adds a band.
 /// - Pro, graphic: drag each slider up/down right on the graph.
 /// - Easy: four dots — Bass, Mids, Clarity, Treble — dragged up/down.
+// parity: curve
 struct CurveView: View {
     enum Edit { case none, easy, pro }
 
@@ -58,6 +59,9 @@ struct CurveView: View {
 
     /// Bumped once after appearing to guarantee a fresh draw.
     @State private var kick = 0
+    /// Scroll-wheel monitor (Q of the hovered/selected band) while the pointer is inside.
+    @State private var scrollMonitor: Any?
+    @State private var pointerInside = false
     @State private var dragging: Int?
     @State private var dragStart: (profile: Profile, qMode: Bool, pt: CGPoint)?
     @State private var hover: Int?
@@ -96,13 +100,19 @@ struct CurveView: View {
             .contentShape(Rectangle())
             .gesture(edit != .none ? drag(size: geo.size) : nil)
             .onContinuousHover { phase in
+                if case .active = phase { pointerInside = true } else { pointerInside = false }
                 guard edit != .none, dragging == nil else { return }
                 if case .active(let p) = phase { hover = hit(p, geo.size) } else { hover = nil }
             }
+            .onAppear { installScroll(size: geo.size) }
         }
         .onAppear {
             refreshCurve()
             DispatchQueue.main.async { kick += 1 }
+        }
+        .onDisappear {
+            if let m = scrollMonitor { NSEvent.removeMonitor(m) }
+            scrollMonitor = nil
         }
     }
 
@@ -154,12 +164,16 @@ struct CurveView: View {
         Double((h / 2 - y) / (h / 2 - pad)) * anim.range
     }
 
+    // parity: curve-edit
     private func handles(_ size: CGSize) -> [Handle] {
         switch edit {
         case .none: return []
         case .easy:
-            return Self.macroSpots.map { kp, name, f in
-                Handle(kind: .macro(kp, name), pt: CGPoint(x: x(f, size.width), y: y(profile.macros[keyPath: kp], size.height)))
+            // Knob frequencies come from the core (same dots on every platform).
+            return Self.macroSpots.enumerated().map { i, spot in
+                let (kp, name, fallback) = spot
+                let f = c.constants?.macros[safe: i]?.freq ?? fallback
+                return Handle(kind: .macro(kp, name), pt: CGPoint(x: x(f, size.width), y: y(profile.macros[keyPath: kp], size.height)))
             }
         case .pro:
             switch profile.eq {
@@ -450,7 +464,9 @@ struct CurveView: View {
                     }
                     dragging = i
                     if let b = hs[i].bandIndex { selected = b }
-                    dragStart = (profile, NSEvent.modifierFlags.contains(.option), hs[i].pt)
+                    // Shift-drag (same as Windows) or Option-drag changes Q.
+                    let mods = NSEvent.modifierFlags
+                    dragStart = (profile, mods.contains(.option) || mods.contains(.shift), hs[i].pt)
                     if theme.motionAllowed {
                         anim.ripples.append((hs[i].pt, Date().timeIntervalSinceReferenceDate,
                                              theme.current.curveColor(at: Double(hs[i].pt.x / size.width))))
@@ -501,6 +517,24 @@ struct CurveView: View {
             }
     }
 
+    /// Scroll over the curve changes the Q of the hovered (or selected) band —
+    /// same as the mouse wheel on Windows.
+    // parity: curve-q-wheel
+    private func installScroll(size: CGSize) {
+        guard edit == .pro, scrollMonitor == nil else { return }
+        scrollMonitor = NSEvent.addLocalMonitorForEvents(matching: .scrollWheel) { e in
+            guard pointerInside, dragging == nil, case .parametric(var bs) = profile.eq else { return e }
+            let hs = handles(size)
+            let idx = hover.flatMap { $0 < hs.count ? hs[$0].bandIndex : nil } ?? selected
+            guard let i = idx, i < bs.count, e.scrollingDeltaY != 0 else { return e }
+            let step = e.hasPreciseScrollingDeltas ? e.scrollingDeltaY / 40 : (e.scrollingDeltaY > 0 ? 1 : -1)
+            bs[i].q = (min(max(bs[i].q * pow(1.1, step), 0.1), 30) * 100).rounded() / 100
+            profile.eq = .parametric(bs)
+            if selected != i { selected = i }
+            return nil // consumed: don't scroll the page
+        }
+    }
+
     private func addBand(at p: CGPoint, size: CGSize) {
         guard case .parametric(var bs) = profile.eq, bs.count < 64 else { return }
         let f = freq(p.x, size.width)
@@ -516,4 +550,8 @@ struct CurveView: View {
 
 func fmtHz(_ f: Double) -> String {
     f >= 1000 ? String(format: "%.2f kHz", f / 1000) : String(format: "%.0f Hz", f)
+}
+
+extension Array {
+    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }

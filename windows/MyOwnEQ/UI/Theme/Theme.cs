@@ -139,6 +139,7 @@ public sealed class UiSettings
 }
 
 /// <summary>Theme list + current theme + motion prefs + custom logo. One per app (<see cref="Ui.Theme"/>).</summary>
+// parity: themes
 public sealed class ThemeStore
 {
     public UiSettings Settings { get; } = UiSettings.Load();
@@ -150,8 +151,9 @@ public sealed class ThemeStore
     /// <summary>Theme, logo or motion prefs changed: rebuild visuals.</summary>
     public event Action? Changed;
 
-    public ThemeStore()
+    public ThemeStore(CoreBridge? core = null)
     {
+        _core = core;
         CustomLogo = LoadCustomLogo();
         if (Settings.Logo == LogoStyle.Custom && CustomLogo is null) Settings.Logo = LogoStyle.Wave;
         Reload();
@@ -176,30 +178,33 @@ public sealed class ThemeStore
         Changed?.Invoke();
     }
 
+    /// <summary>Parsing, validation and override rules live in the core (same for every app).</summary>
+    private readonly CoreBridge? _core;
+
     public void Reload()
     {
-        var byId = new Dictionary<string, Theme> { [Theme.Fallback.Id] = Theme.Fallback };
-        var order = new List<string> { Theme.Fallback.Id };
+        var themes = new List<Theme> { Theme.Fallback };
         var errors = new List<string>();
-        var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
-        foreach (var dir in SearchDirs("Themes"))
+        if (_core is not null)
         {
-            if (!Directory.Exists(dir)) continue;
-            foreach (var f in Directory.GetFiles(dir, "*.json").OrderBy(f => f, StringComparer.Ordinal))
+            var r = _core.Command("load_themes", new { dirs = SearchDirs("Themes").ToList() });
+            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+            foreach (var node in r["themes"]?.AsArray() ?? new System.Text.Json.Nodes.JsonArray())
             {
                 try
                 {
-                    var t = JsonSerializer.Deserialize<Theme>(File.ReadAllText(f), opts);
-                    if (t is null || string.IsNullOrWhiteSpace(t.Id)) throw new InvalidDataException("missing id");
-                    if (!byId.ContainsKey(t.Id)) order.Add(t.Id);
-                    byId[t.Id] = t;
+                    var t = node.Deserialize<Theme>(opts);
+                    if (t is null) continue;
+                    int i = themes.FindIndex(x => x.Id == t.Id);
+                    if (i >= 0) themes[i] = t; else themes.Add(t);
                 }
-                catch (Exception e) { errors.Add($"{System.IO.Path.GetFileName(f)}: {e.Message}"); }
+                catch (Exception e) { errors.Add(e.Message); }
             }
+            foreach (var e in r["errors"]?.AsArray() ?? new System.Text.Json.Nodes.JsonArray()) errors.Add(e?.GetValue<string>() ?? "");
         }
-        Themes = order.Select(id => byId[id]).ToList();
+        Themes = themes;
         LoadErrors = errors;
-        Current = byId.GetValueOrDefault(Settings.Theme) ?? byId.GetValueOrDefault(Current.Id) ?? Theme.Fallback;
+        Current = themes.FirstOrDefault(t => t.Id == Settings.Theme) ?? themes.FirstOrDefault(t => t.Id == Current.Id) ?? Theme.Fallback;
         Apply();
     }
 
@@ -255,6 +260,7 @@ public sealed class ThemeStore
     }
 
     /// <summary>Copy an image as a 512 px PNG and switch to it.</summary>
+    // parity: custom-logo
     public bool SetCustomLogo(string file)
     {
         try

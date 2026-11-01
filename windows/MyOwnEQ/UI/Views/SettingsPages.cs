@@ -52,6 +52,7 @@ public abstract class Page : ScrollViewer
 
 /// <summary>System volume + boost (VolumeCard). Boost is shown but disabled on Windows:
 /// Equalizer APO has no limiter, so a boost there would clip.</summary>
+// parity: volume
 public sealed class VolumeCard : StackPanel
 {
     public VolumeCard(AppController c, bool compact = true)
@@ -104,12 +105,14 @@ public sealed class VolumeCard : StackPanel
 }
 
 /// <summary>Equalizer APO setup steps as a glass card (Windows only).</summary>
+// parity: apo-setup
 public static class ApoSetupCard
 {
     public static Border? Needed(AppController c)
     {
         var apo = c.Apo;
-        if (apo.Status == ApoStatus.Ready && c.Message is null) return null;
+        // Only Equalizer APO's real status decides; messages are toasts now.
+        if (apo.Status == ApoStatus.Ready) return null;
         var col = Ui.VStack(8);
         switch (apo.Status)
         {
@@ -131,7 +134,6 @@ public static class ApoSetupCard
                                          Ui.Button(L("Device selector…"), apo.OpenConfigurator)), 8, false);
                 break;
         }
-        if (c.Message is { } m) Ui.Add(col, Ui.Secondary(m, 12), 8, false);
         var head = Ui.HStack(8, Ui.Glyph(Ui.GWarning, 14, Theme.Frozen(Colors.Orange)), Ui.Caps(L("Windows audio engine")));
         head.Margin = new Thickness(0, 0, 0, 8);
         return Ui.Glass(Ui.VStack(0, head, col), highlighted: apo.Status != ApoStatus.Ready);
@@ -139,6 +141,7 @@ public static class ApoSetupCard
 }
 
 /// <summary>Current output: name, default profile, volume, links, favorites, app rules.</summary>
+// parity: devices-rules
 public sealed class DeviceSettings : Page
 {
     public DeviceSettings(AppController c) : base(c, L("Devices & Rules"), L("Default profile, favorites, linked headphones and app rules"), Ui.GHeadphones)
@@ -169,16 +172,27 @@ public sealed class DeviceSettings : Page
         foreach (var m in g.Members)
         {
             bool mine = m.Key.Machine == s.Machine;
-            var who = Ui.HStack(8, Ui.Glyph(Ui.GHeadphones, 13), Ui.Text(m.OsName, 13), Ui.Secondary(mine ? L("this PC") : m.Key.Machine, 11));
+            var who = Ui.HStack(8, Ui.Glyph(Ui.GHeadphones, 13), Ui.Text(m.OsName, 13), Ui.Secondary(mine ? L("this PC") : c.MachineName(m.Key.Machine), 11));
             var key = m.Key;
             link.Children.Add(g.Members.Count > 1 ? Ui.Spread(who, Ui.Button(L("Unlink"), () => c.Unlink(key))) : who);
         }
         var others = s.Library.Groups.Where(o => o.Id != g.Id && o.Members.Count > 0 && o.Members.All(m => m.Key.Machine != s.Machine)).ToList();
         if (others.Count > 0)
         {
-            var pick = new ComboBox { Width = 300 };
-            foreach (var o in others) pick.Items.Add(new ComboBoxItem { Content = $"{o.Name} ({o.Members[0].Key.Machine})", Tag = o.Id });
-            Ui.Add(link, Ui.HStack(8, pick, Ui.Button(L("Link"), () => { if (pick.SelectedItem is ComboBoxItem { Tag: string id }) c.Link(id); }, glyph: Ui.GLink)), 6, false);
+            // Same pattern as the Mac: one button, pick the other machine's device from a menu.
+            var menu = new ContextMenu();
+            foreach (var o in others)
+            {
+                var id = o.Id;
+                var mi = new MenuItem { Header = $"{o.Name} ({c.MachineName(o.Members[0].Key.Machine)})" };
+                mi.Click += (_, _) => c.Link(id);
+                menu.Items.Add(mi);
+            }
+            var linkBtn = Ui.Button(L("Link with a device from another machine…"), () => { }, glyph: Ui.GLink);
+            linkBtn.ContextMenu = menu;
+            linkBtn.Click += (_, _) => { menu.PlacementTarget = linkBtn; menu.IsOpen = true; };
+            linkBtn.HorizontalAlignment = HorizontalAlignment.Left;
+            Ui.Add(link, linkBtn, 6, false);
         }
         Ui.Add(link, Ui.Secondary(L("Linked devices share default profile, favorites, rules and the selected profile. Pick a profile here and the other machine switches too."), 11.5), 6, false);
         Card(L("Same headphones on other machines"), Ui.GLink, link);
@@ -227,13 +241,14 @@ public sealed class DeviceSettings : Page
         prof.SelectionChanged += (_, _) => { if (prof.SelectedItem is ComboBoxItem { Tag: string id }) { r.Profile = id; C.UpsertRule(r); } };
         var name = Ui.Text(r.App.Name, 13, FontWeights.SemiBold);
         name.Margin = new Thickness(0, 0, 8, 0);
-        var row = Ui.HStack(0, en, name, exe, trig, Ui.Glyph("", 12, Ui.T.InkBrush(0.5)), prof,
+        var row = Ui.HStack(0, en, name, exe, trig, Ui.Glyph("\uE72A", 12, Ui.T.InkBrush(0.5)), prof,
                             Ui.IconButton(Ui.GDelete, () => C.DeleteRule(r.Id), L("Delete"), Ui.T.InkBrush(0.6)));
         return Ui.Glass(row, radius: 10, padding: 8, shadow: false);
     }
 }
 
 /// <summary>Sync mode, server / LAN host, updates, this PC, Equalizer APO tools.</summary>
+// parity: sync
 public sealed class SyncSettings : Page
 {
     private static string? _mode;
@@ -271,7 +286,7 @@ public sealed class SyncSettings : Page
 
         if (_mode == "server")
         {
-            var url = Field(_url, 360, "192.168.0.10:7878 / https://eq.example.com");
+            var url = Field(_url, 360, L("192.168.0.10:7878 or https://eq.example.com"));
             url.TextChanged += (_, _) => _url = url.Text;
             var token = new PasswordBox { Password = _token, Width = 360, Padding = new Thickness(8, 5, 8, 5), HorizontalAlignment = HorizontalAlignment.Left };
             token.PasswordChanged += (_, _) => _token = token.Password;
@@ -313,13 +328,16 @@ public sealed class SyncSettings : Page
         var u = c.Update;
         var upd = Ui.VStack(8,
             ToggleSwitch.Row(L("Download updates automatically, install on restart"), u?.Auto ?? true, on => c.SetAutoUpdate(on)),
-            Ui.Spread(Ui.Secondary(UpdateLabel(u), 12),
-                      u?.IsReady == true ? Ui.Button(L("Restart now"), () => { if (c.ApplyUpdate()) Application.Current.Shutdown(); }, prominent: true)
-                                         : Ui.Button(L("Check now"), c.CheckForUpdates)),
+            Ui.Spread(Ui.Secondary(UpdateLabel(u), 12), UpdateButton(c, u)),
             Labeled(L("Version"), Ui.Secondary(AppController.AppVersion, 12)));
         Card(L("Updates"), Ui.GDownload, upd);
 
-        Card(L("This PC"), Ui.GInfo, Labeled(L("Machine id"), Ui.Secondary(c.State?.Machine ?? "", 12)));
+        if (info.Mode != "off")
+            Card(L("Connected machines"), Ui.GHeadphones, Ui.VStack(6, PeerList(info.Peers ?? new(), c.State?.Machine ?? ""),
+                Ui.Secondary(L("Every computer using this sync. “Find on my network” only looks for hosts to connect to."), 11.5)));
+
+        Card(L("This PC"), Ui.GInfo, Ui.VStack(2, Labeled(L("Name"), Ui.Secondary(Environment.MachineName, 12)),
+                                                Labeled(L("Machine id"), Ui.Secondary(c.State?.Machine ?? "", 12))));
         if (c.Apo.Status == ApoStatus.Ready)
             Card("Equalizer APO", Ui.GSettings, Ui.HStack(8, Ui.Button(L("Device selector…"), c.Apo.OpenConfigurator), Ui.Button(L("Restore my old config"), c.ApoRestore)));
     }
@@ -327,6 +345,45 @@ public sealed class SyncSettings : Page
     private void Refresh()
     {
         if (Parent is ContentControl host) host.Content = new SyncSettings(C);
+    }
+
+    // parity: update-check
+    private static UIElement UpdateButton(AppController c, UpdateInfo? u)
+    {
+        if (u?.IsReady == true) return Ui.Button(L("Restart now"), () => { if (c.ApplyUpdate()) Application.Current.Shutdown(); }, prominent: true);
+        var b = Ui.Button(L("Check now"), c.CheckForUpdates);
+        if (u?.IsBusy != true) return b;
+        b.IsEnabled = false;
+        return Ui.HStack(8, Ui.Spinner(), b);
+    }
+
+    /// <summary>Machines using the same sync, online first.</summary>
+    // parity: sync-peers
+    private static UIElement PeerList(System.Collections.Generic.List<Peer> peers, string me)
+    {
+        var col = Ui.VStack(8);
+        if (peers.Count == 0) col.Children.Add(Ui.Secondary(L("No machines yet. They appear here once connected."), 12));
+        foreach (var p in peers.OrderBy(p => p.Online ? 0 : 1).ThenBy(p => p.DisplayName))
+        {
+            var name = Ui.HStack(6, Ui.Text(p.DisplayName, 13, FontWeights.SemiBold));
+            if (p.Machine == me) name.Children.Add(Ui.Tag(L("THIS COMPUTER"), Theme.WithAlpha(Ui.T.Ink, 0.6)));
+            var who = Ui.VStack(1, name, Ui.Secondary(p.Version.Length == 0 ? p.Machine : $"MyOwnEQ {p.Version} · {p.Machine}", 11));
+            string glyph = p.Platform == "windows" ? "\uE7F8" : p.Platform == "linux" ? "\uE977" : "\uE7F4";
+            var left = Ui.HStack(10, Ui.Glyph(glyph, 16), who);
+            var dot = new System.Windows.Shapes.Ellipse { Width = 8, Height = 8, Fill = p.Online ? Brushes.LimeGreen : Brushes.Gray, VerticalAlignment = VerticalAlignment.Center };
+            var state = Ui.HStack(6, dot, Ui.Secondary(p.Online ? L("online") : L("seen %@", Ago(p.LastSeen)), 11.5));
+            Ui.Add(col, Ui.Spread(left, state), 8, false);
+        }
+        return col;
+    }
+
+    private static string Ago(ulong ms)
+    {
+        var d = DateTime.UtcNow - DateTimeOffset.FromUnixTimeMilliseconds((long)ms).UtcDateTime;
+        return d.TotalMinutes < 1 ? L("just now")
+             : d.TotalHours < 1 ? L("%@ min ago", (int)d.TotalMinutes)
+             : d.TotalDays < 1 ? L("%@ h ago", (int)d.TotalHours)
+             : L("%@ d ago", (int)d.TotalDays);
     }
 
     public static string UpdateLabel(UpdateInfo? u) => u?.State switch
@@ -386,6 +443,7 @@ public sealed class PreferencesPage : Page
         Ui.Add(logoCol, Ui.Secondary(L("Changes the tray icon and the logo inside the app. The .exe icon is the wave."), 11.5), 10, false);
         Card(L("Logo"), Ui.GPhoto, logoCol);
 
+        // parity: motion-settings
         bool reduce = !SystemParameters.ClientAreaAnimation;
         var motion = Ui.VStack(4,
             ToggleSwitch.Row(L("Smooth animations (springy curve, morphing, ripples)"), s.Motion, on => st.Update(x => x.Motion = on)),
@@ -394,7 +452,8 @@ public sealed class PreferencesPage : Page
         if (reduce) Ui.Add(motion, Ui.Secondary(L("Animation effects are off in Windows settings, so animations stay off."), 11.5), 4, false);
         Card(L("Motion"), Ui.GSparkle, motion);
 
-        Card(L("Windows"), Ui.GSettings, ToggleSwitch.Row(L("Start MyOwnEQ with Windows"), Startup.Enabled, on => Startup.Enabled = on));
+        // parity: start-with-system
+        Card(L("System"), Ui.GSettings, ToggleSwitch.Row(L("Start MyOwnEQ with Windows"), Startup.Enabled, on => Startup.Enabled = on));
     }
 
     private static UIElement Link(string text, string url)

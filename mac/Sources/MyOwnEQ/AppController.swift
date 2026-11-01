@@ -9,7 +9,11 @@ final class AppController: ObservableObject {
     @Published private(set) var current: OutputDevice?
     @Published private(set) var engineError: String?
     @Published private(set) var engineRunning = false
-    @Published var lastMessage: String?
+    /// Toast message; clears itself after a few seconds (see `notify`).
+    @Published private(set) var notice: Notice?
+    private var noticeTask: Task<Void, Never>?
+    /// Shared constants from the core (graphic frequencies, knob spots…).
+    private(set) var constants: UiConstants?
     /// Main volume of the current output (0…1), nil when it has none.
     @Published private(set) var volume: Double?
     @Published private(set) var volumeSettable = false
@@ -28,6 +32,12 @@ final class AppController: ObservableObject {
 
     init() {
         core = CoreBridge(dataDir: CoreBridge.dataDir, machineID: CoreBridge.machineID())
+        Lang.shared.attach(core)
+        core.command("ui_constants")
+        constants = core.decodeLast(UiConstants.self)
+        // Who we are for the other machines in sync ("connected machines" list).
+        core.command("set_app_info", ["name": Host.current().localizedName ?? ProcessInfo.processInfo.hostName,
+                                      "platform": "mac", "version": Self.appVersion])
         reload()
         deviceWatcher = DeviceWatcher { [weak self] in
             Task { @MainActor in self?.devicesChanged() }
@@ -71,7 +81,7 @@ final class AppController: ObservableObject {
 
     private func apply(_ reply: [String: Any]) {
         if reply["ok"] as? Bool == false {
-            lastMessage = reply["error"] as? String
+            notify(reply["error"] as? String ?? "?", error: true)
             return
         }
         if reply["library"] != nil {
@@ -79,7 +89,7 @@ final class AppController: ObservableObject {
                 state = s
             } else {
                 // Never fail silently: an empty UI here looks like lost data.
-                lastMessage = L("Couldn't read the profile library (%@). Please report this bug.", core.lastDecodeError ?? "?")
+                notify(L("Couldn't read the profile library (%@). Please report this bug.", core.lastDecodeError ?? "?"), error: true)
             }
         }
     }
@@ -211,12 +221,14 @@ final class AppController: ObservableObject {
     func upsertRule(_ r: Rule) { apply(core.command("upsert_rule", ["rule": r])) }
     func deleteRule(_ id: ID) { apply(core.command("delete_rule", ["id": id])) }
 
+    // parity: eqmac-import
     func importEqMac() {
         let r = core.command("import_eqmac")
         apply(r)
-        if let n = r["imported"] as? Int { lastMessage = L("Imported %@ eqMac presets", n) }
+        if let n = r["imported"] as? Int { notify(L("Imported %@ eqMac presets", n)) }
     }
 
+    // parity: imports
     func importFile(asCorrection: Bool) {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.plainText, .text]
@@ -230,7 +242,7 @@ final class AppController: ObservableObject {
             if asCorrection, name.hasSuffix(" ParametricEQ") { name = String(name.dropLast(" ParametricEQ".count)) }
             let r = core.command("import_apo", ["text": text, "name": name, "as_correction": asCorrection])
             apply(r)
-            if let w = r["warnings"] as? [String], !w.isEmpty { lastMessage = L("%@: %@ lines skipped", name, w.count) }
+            if let w = r["warnings"] as? [String], !w.isEmpty { notify(L("%@: %@ lines skipped", name, w.count)) }
         }
     }
 
@@ -266,7 +278,7 @@ final class AppController: ObservableObject {
         var cfg: [String: Any] = ["mode": mode]
         switch mode {
         case "server": cfg["url"] = url.trimmingCharacters(in: .whitespaces); cfg["token"] = token.trimmingCharacters(in: .whitespaces)
-        case "host": cfg["port"] = port; cfg["token"] = token.isEmpty ? Self.pairingCode() : token
+        case "host": cfg["port"] = port; cfg["token"] = token // empty: the core makes a pairing code
         default: break
         }
         apply(core.command("sync_configure", ["config": cfg]))
@@ -281,12 +293,6 @@ final class AppController: ObservableObject {
                 self.discovering = false
             }
         }
-    }
-
-    static func pairingCode() -> String {
-        let alphabet = Array("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")
-        let chars = (0..<8).map { _ in alphabet[Int.random(in: 0..<alphabet.count)] }
-        return String(chars[0..<4]) + "-" + String(chars[4..<8])
     }
 
     func link(_ other: ID) {
@@ -321,16 +327,27 @@ final class AppController: ObservableObject {
         if let info = try? dec.decode(UpdateInfo.self, from: d), info != update { update = info }
     }
 
+    /// Check now: the core answers "checking" right away; poll quickly while it
+    /// works so the spinner is live, then say how it went.
     func checkForUpdates() {
         guard Self.devBuild == nil else {
-            lastMessage = L("Test build: updates are off. Install a release to get updates.")
+            notify(L("Test build: updates are off. Install a release to get updates."))
             return
         }
         updateReply(core.command("update_check"))
-        // Status flips to ready asynchronously; poll briefly.
-        for delay in [2.0, 6.0, 15.0, 40.0] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-                self?.updateReply(self?.core.command("update_tick") ?? [:])
+        Task { @MainActor [weak self] in
+            for _ in 0..<600 { // up to 3 min (downloads)
+                try? await Task.sleep(for: .milliseconds(300))
+                guard let self else { return }
+                self.updateReply(self.core.command("update_tick"))
+                guard let u = self.update, u.isBusy else { break }
+            }
+            guard let self, let u = self.update else { return }
+            switch u.state {
+            case "up_to_date": self.notify(L("Up to date"))
+            case "ready": self.notify(L("Version %@ is ready. Restart to install.", u.version ?? ""))
+            case "error": self.notify(L("Update check failed: %@", u.message ?? ""), error: true)
+            default: break
             }
         }
     }
@@ -345,7 +362,7 @@ final class AppController: ObservableObject {
             update = nil // don't apply twice in willTerminate
             NSApp.terminate(nil)
         } else {
-            lastMessage = r["error"] as? String
+            notify(r["error"] as? String ?? "?", error: true)
             restartEngine()
         }
     }
@@ -366,6 +383,57 @@ final class AppController: ObservableObject {
         }
     }
 
+    /// Show a toast; it clears itself (errors stay longer).
+    func notify(_ text: String, error: Bool = false) {
+        let n = Notice(text: text, isError: error)
+        notice = n
+        noticeTask?.cancel()
+        noticeTask = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: .seconds(error ? 12 : 6))
+            guard !Task.isCancelled, self?.notice?.id == n.id else { return }
+            self?.notice = nil
+        }
+    }
+
+    func dismissNotice() { notice = nil }
+
+    // MARK: - shared editing logic (in the core, same for every app)
+
+    /// Edited preset → new profile "Name (mine)" (presets are read-only). Returns it.
+    func forkPreset(_ draft: Profile, originalName: String) -> Profile? {
+        let r = core.command("fork_preset", ["draft": draft, "name": L("%@ (mine)", originalName)])
+        apply(r)
+        guard let p = r["profile"], let d = try? JSONSerialization.data(withJSONObject: p) else { return nil }
+        let dec = JSONDecoder()
+        dec.keyDecodingStrategy = .convertFromSnakeCase
+        return try? dec.decode(Profile.self, from: d)
+    }
+
+    /// Switch a profile's EQ layout keeping the sound ("parametric" | "graphic10" | "graphic31").
+    func convertEq(_ eq: EqLayer, to layout: String, for profile: ID) -> EqLayer? {
+        let r = core.command("convert_eq", ["profile": profile, "eq": eq, "to": layout])
+        return decode(EqLayer.self, r["eq"])
+    }
+
+    /// Where a new band should go (nil when it doesn't fit).
+    func suggestBand(_ eq: EqLayer) -> Band? {
+        decode(Band.self, core.command("suggest_band", ["eq": eq])["band"])
+    }
+
+    private func decode<T: Decodable>(_ t: T.Type, _ v: Any?) -> T? {
+        guard let v, !(v is NSNull), let d = try? JSONSerialization.data(withJSONObject: v, options: .fragmentsAllowed) else { return nil }
+        let dec = JSONDecoder()
+        dec.keyDecodingStrategy = .convertFromSnakeCase
+        return try? dec.decode(T.self, from: d)
+    }
+
+    /// Friendly name of a machine id (from the sync's machine list).
+    func machineName(_ id: String) -> String {
+        if id == state?.machine { return Host.current().localizedName ?? id }
+        return state?.sync.peers?.first { $0.machine == id }?.displayName ?? id
+    }
+
+    // parity: audio-permission
     func openPrivacySettings() {
         if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AudioCapture") {
             NSWorkspace.shared.open(url)

@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Settings for the current output device's group: name, default profile,
 /// favorites and app rules ("CS2 running → FPS").
+// parity: devices-rules
 struct DeviceSettings: View {
     @EnvironmentObject var c: AppController
     @State private var apps: [AppWatcher.App] = []
@@ -27,7 +28,7 @@ struct DeviceSettings: View {
                         HStack {
                             Image(systemName: m.key.machine == s.machine ? "laptopcomputer" : "desktopcomputer")
                             Text(m.osName)
-                            Text(m.key.machine == s.machine ? "this Mac" : m.key.machine)
+                            Text(m.key.machine == s.machine ? L("this Mac") : c.machineName(m.key.machine))
                                 .font(.caption).foregroundStyle(.secondary)
                             Spacer()
                             if g.members.count > 1 {
@@ -41,7 +42,7 @@ struct DeviceSettings: View {
                     if !others.isEmpty {
                         Menu(L("Link with a device from another machine…")) {
                             ForEach(others) { o in
-                                Button("\(o.name) (\(o.members.first?.key.machine ?? ""))") { c.link(o.id) }
+                                Button("\(o.name) (\(c.machineName(o.members.first?.key.machine ?? "")))") { c.link(o.id) }
                             }
                         }
                     }

@@ -56,6 +56,7 @@ struct EditorWindow: View {
                 .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 10)), removal: .opacity))
             }
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: nav)
+            .overlay(alignment: .bottom) { NoticeToast().padding(.bottom, 18) }
         }
         .id(lang.code) // re-render every text when the language changes; `nav` survives
         .environmentObject(session)
@@ -85,6 +86,7 @@ struct EditorWindow: View {
 
 // MARK: - sidebar
 
+// parity: sidebar
 struct Sidebar: View {
     @EnvironmentObject var c: AppController
     @EnvironmentObject var theme: ThemeStore
@@ -161,10 +163,20 @@ struct Sidebar: View {
                 Button(L("Duplicate")) { duplicate(p) }
                 Button(L("Export Equalizer APO…")) { export(p) }
                 Divider()
-                Button(L("Delete"), role: .destructive) { c.delete(p.id) }
+                // parity: delete-confirm
+                Button(L("Delete"), role: .destructive) {
+                    let a = NSAlert()
+                    a.messageText = L("Delete “%@”? This syncs to your other machines.", p.name)
+                    a.alertStyle = .warning
+                    a.addButton(withTitle: L("Delete"))
+                    a.addButton(withTitle: L("Cancel"))
+                    if a.runModal() == .alertFirstButtonReturn { c.delete(p.id) }
+                }
+                .disabled(p.isBuiltin)
             }
     }
 
+    // parity: rename
     private func promptRename(_ p: Profile) {
         if let name = askName(L("Rename “%@”", p.name), current: p.name) { c.rename(p.id, to: name) }
     }
@@ -299,6 +311,7 @@ struct ProfileEditor: View {
                     VStack(alignment: .leading, spacing: 4) {
                         HStack(spacing: 8) {
                             TextField(L("Name"), text: $draft.name).textFieldStyle(.plain).font(.system(size: 26, weight: .bold))
+                                .help(draft.isBuiltin ? L("Presets can't be renamed. Change anything and a copy is made for you.") : L("Rename"))
                                 .disabled(draft.isBuiltin)
                                 .focused($nameFocused)
                                 .onSubmit { nameFocused = false }
@@ -397,7 +410,7 @@ struct ProfileEditor: View {
     private var hint: String {
         if !pro { return L("Drag the dots: Bass, Mids, Clarity, Treble") }
         if case .graphic = draft.eq { return L("Drag the sliders up and down on the graph") }
-        return L("Drag the dots · Option-drag changes Q · double-click adds a band")
+        return L("Drag the dots · Shift-drag or wheel changes Q · double-click adds a band")
     }
 
     private func changed(_ d: Profile, wasActive: Bool) {
@@ -405,15 +418,12 @@ struct ProfileEditor: View {
             adopting = false
             return
         }
-        // Editing a preset: copy it into a new profile and keep editing the copy.
-        if d.isBuiltin, d.id == original.id, d != original {
-            var copy = d
-            copy.id = newID()
-            copy.name = L("%@ (mine)", original.name)
-            copy.tags.removeAll { $0 == "builtin" }
-            c.save(copy)
+        // Editing a preset: the core copies it into a new profile (and keeps it
+        // playing if it was); keep editing the copy.
+        // parity: preset-fork
+        if d.isBuiltin, d.id == original.id, d != original, let copy = c.forkPreset(d, originalName: original.name) {
             saved = copy
-            if wasActive { c.select(copy.id) }
+            adopting = true
             draft = copy
             onFork(copy.id, original.id)
             return
@@ -443,6 +453,7 @@ struct ProfileEditor: View {
 }
 
 /// Lets the window ask "save changes?" before leaving a profile with unsaved edits.
+// parity: auto-save
 final class EditSession: ObservableObject {
     var dirtyName: String?
     var commit: () -> Void = {}
@@ -489,6 +500,7 @@ struct Tag: View {
     }
 }
 
+// parity: easy-panel
 struct EasyPanel: View {
     @EnvironmentObject var c: AppController
     @EnvironmentObject var theme: ThemeStore
@@ -546,6 +558,7 @@ struct EasyPanel: View {
 }
 
 /// Press and hold to hear a profile; release to go back to what was playing.
+// parity: hold-to-listen
 struct HoldToListen: View {
     @EnvironmentObject var theme: ThemeStore
     @Binding var holding: Bool

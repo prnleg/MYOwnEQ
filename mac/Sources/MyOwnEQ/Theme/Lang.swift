@@ -22,6 +22,7 @@ func L(_ key: String, _ args: CustomStringConvertible...) -> String {
     return s
 }
 
+// parity: languages
 final class Lang: ObservableObject {
     static let shared = Lang()
 
@@ -43,47 +44,38 @@ final class Lang: ObservableObject {
         apply()
     }
 
+    /// Parsing, validation and merge rules live in the core (same for every app).
+    private var core: CoreBridge?
+
+    @MainActor
+    func attach(_ core: CoreBridge) {
+        self.core = core
+        reload()
+    }
+
     func reload() {
-        var byCode: [String: LangPack] = ["en-US": LangPack(code: "en-US", name: "English (US)", author: "MyOwnEQ", strings: [:])]
-        var errors: [String] = []
-        for dir in Self.searchDirs() {
-            let files = (try? FileManager.default.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil)) ?? []
-            for f in files where f.pathExtension == "json" {
-                do {
-                    let p = try JSONDecoder().decode(LangPack.self, from: Data(contentsOf: f))
-                    // User packs extend/override bundled ones key by key.
-                    if var existing = byCode[p.code] {
-                        existing.strings.merge(p.strings) { _, new in new }
-                        existing.name = p.name
-                        byCode[p.code] = existing
-                    } else {
-                        byCode[p.code] = p
-                    }
-                } catch {
-                    errors.append("\(f.lastPathComponent): \(error.localizedDescription)")
-                }
-            }
+        guard let core else { return } // before the core exists: English keys
+        let dirs = Self.searchDirs().map(\.path)
+        let r = MainActor.assumeIsolated {
+            core.command("load_langs", ["dirs": dirs, "choice": choice as Any, "preferred": Locale.preferredLanguages])
         }
-        packs = byCode.values.sorted { $0.name < $1.name }
-        loadErrors = errors
+        let dec = JSONDecoder()
+        if let raw = r["packs"], let d = try? JSONSerialization.data(withJSONObject: raw),
+           let p = try? dec.decode([LangPack].self, from: d) {
+            packs = p
+        }
+        loadErrors = r["errors"] as? [String] ?? []
+        resolved = r["code"] as? String ?? "en-US"
         apply()
     }
 
+    private var resolved = "en-US"
+
     private func apply() {
-        let wanted = choice ?? Self.systemMatch(packs.map(\.code)) ?? "en-US"
+        let wanted = choice ?? resolved
         let pack = packs.first { $0.code == wanted } ?? packs.first { $0.code == "en-US" }
         table = pack?.strings ?? [:]
         code = pack?.code ?? "en-US"
-    }
-
-    /// First system preferred language we have a pack for (exact, then by language).
-    private static func systemMatch(_ codes: [String]) -> String? {
-        for pref in Locale.preferredLanguages {
-            if let c = codes.first(where: { $0.caseInsensitiveCompare(pref) == .orderedSame }) { return c }
-            let lang = pref.split(separator: "-").first.map(String.init) ?? pref
-            if let c = codes.first(where: { $0.lowercased().hasPrefix(lang.lowercased() + "-") || $0.lowercased() == lang.lowercased() }) { return c }
-        }
-        return nil
     }
 
     static var userDir: URL {

@@ -6,6 +6,16 @@ on:
   pull_request:
 
 jobs:
+  parity:
+    # Mac and Windows must stay feature-equal (parity/features.json, CONTRIBUTING.md).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Same features on both platforms
+        run: python3 scripts/parity.py
+      - name: Translations complete (both platforms)
+        run: python3 scripts/lang-keys.py --check
+
   test:
     strategy:
       matrix:

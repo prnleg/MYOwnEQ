@@ -12,16 +12,9 @@ using static MyOwnEQ.UI.Loc;
 namespace MyOwnEQ.UI;
 
 /// <summary>Pro mode: parametric bands or graphic sliders, output, correction (ProPanel.swift).</summary>
+// parity: pro-panel
 public sealed class ProPanel : StackPanel
 {
-    private static readonly double[] G10 = { 32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000 };
-    private static readonly double[] G31 = { 20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
-                                             1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000 };
-
-    /// <summary>Parametric bands kept while trying a graphic layout (per profile), so going
-    /// back without touching the sliders restores them exactly.</summary>
-    private static readonly Dictionary<string, (List<Band> bands, string graphic)> Stash = new();
-
     private enum Mode { Parametric, G10, G31 }
 
     private readonly AppController _c;
@@ -58,7 +51,7 @@ public sealed class ProPanel : StackPanel
         if (!p.Preamp.IsAuto)
             Ui.Add(output, LabeledSlider(L("Preamp"), -24, 6, p.Preamp.Db ?? 0, true, v => Ui.Db(v), v => { p.Preamp = Preamp.Manual(Math.Round(v, 1)); edited(false); }), 8, false);
         Ui.Add(output, LabeledSlider(L("Balance"), -1, 1, p.Balance, true,
-            v => Math.Abs(v) < 0.03 ? "C" : v < 0 ? $"L {-v * 100:0}%" : $"R {v * 100:0}%",
+            v => Math.Abs(v) < 0.03 ? "C" : v < 0 ? L("L") + $" {-v * 100:0}%" : L("R") + $" {v * 100:0}%",
             v => { p.Balance = Math.Abs(v) < 0.03 ? 0 : v; edited(false); }), 8, false);
         Ui.Add(output, LabeledSlider(L("Loudness"), 0, 1, p.Loudness, false, v => v == 0 ? L("off") : $"{v * 100:0}%", v => { p.Loudness = v; edited(false); }), 8, false);
         Ui.Add(output, Ui.Secondary(L("Windows engine (Equalizer APO) has no limiter: auto preamp keeps it from clipping."), 11.5), 8, false);
@@ -185,68 +178,21 @@ public sealed class ProPanel : StackPanel
 
     private void AddBand()
     {
-        if (_p.Eq is not ParametricLayer pl) return;
-        var fs = new List<double> { 20 };
-        fs.AddRange(pl.Bands.Select(b => b.Freq).OrderBy(f => f));
-        fs.Add(20000);
-        double best = 1000, gap = 0;
-        for (int i = 0; i + 1 < fs.Count; i++)
-            if (Math.Log(fs[i + 1] / fs[i]) > gap) { gap = Math.Log(fs[i + 1] / fs[i]); best = Math.Sqrt(fs[i] * fs[i + 1]); }
-        pl.Bands.Add(new Band { Kind = FilterKind.Peak, Freq = Math.Round(best), GainDb = 0, Q = 1 });
+        if (_p.Eq is not ParametricLayer pl || _c.SuggestBand(_p.Eq) is not { } band) return;
+        pl.Bands.Add(band);
         _select(pl.Bands.Count - 1);
         _edited(true);
     }
 
-    /// <summary>Switching layouts keeps the sound: the current curve is sampled at the
-    /// graphic frequencies; graphic sliders become peaking bands (ProPanel.swift).</summary>
+    /// <summary>Switch layout keeping the sound. The core samples the curve and keeps
+    /// the way back to the exact original bands (same logic on every platform).</summary>
+    // parity: eq-layout-convert
     private void SwitchMode(Mode m)
     {
         if (m == CurrentMode) return;
-        var before = _p.Eq;
-        string beforeJson = JsonSerializer.Serialize(before, Json.Options);
-        if (m == Mode.Parametric)
-        {
-            if (before is GraphicLayer gl)
-            {
-                if (Stash.TryGetValue(_p.Id, out var st) && st.graphic == beforeJson)
-                    _p.Eq = new ParametricLayer { Bands = st.bands.Select(Json.Clone).ToList() }; // untouched: exact restore
-                else
-                    _p.Eq = new ParametricLayer
-                    {
-                        Bands = gl.Points.Where(x => x.GainDb != 0)
-                            .Select(x => new Band { Kind = FilterKind.Peak, Freq = x.Freq, GainDb = x.GainDb, Q = gl.Points.Count > 10 ? 4.3 : 1.41 }).ToList(),
-                    };
-                Stash.Remove(_p.Id);
-            }
-        }
-        else
-        {
-            var freqs = m == Mode.G10 ? G10 : G31;
-            var gains = Response(before, freqs);
-            var neu = new GraphicLayer { Points = freqs.Zip(gains, (f, g) => new GraphicPoint { Freq = f, GainDb = Math.Clamp(Math.Round(g * 2) / 2, -12, 12) }).ToList() };
-            string neuJson = JsonSerializer.Serialize<EqLayer>(neu, Json.Options);
-            if (before is ParametricLayer pl) Stash[_p.Id] = (pl.Bands.Select(Json.Clone).ToList(), neuJson);
-            else if (Stash.TryGetValue(_p.Id, out var st) && st.graphic == beforeJson) Stash[_p.Id] = (st.bands, neuJson);
-            else Stash.Remove(_p.Id);
-            _p.Eq = neu;
-        }
+        string to = m switch { Mode.Parametric => "parametric", Mode.G10 => "graphic10", _ => "graphic31" };
+        if (_c.ConvertEq(_p.Eq, to, _p.Id) is { } eq) _p.Eq = eq;
         _select(null);
         _edited(true);
-    }
-
-    /// <summary>Gain (dB) of an EQ layer alone at the given frequencies.</summary>
-    private double[] Response(EqLayer eq, double[] freqs)
-    {
-        var probe = new Profile { Name = "probe", Eq = eq, Preamp = Preamp.Manual(0), Limiter = false };
-        if (_c.CurveFor(probe, 512) is not { Freqs.Count: > 1 } cv) return new double[freqs.Length];
-        return freqs.Select(f =>
-        {
-            int hi = cv.Freqs.FindIndex(x => x >= f);
-            if (hi < 0) return cv.Total[^1];
-            if (hi == 0) return cv.Total[0];
-            int lo = hi - 1;
-            double t = Math.Log(f / cv.Freqs[lo]) / Math.Log(cv.Freqs[hi] / cv.Freqs[lo]);
-            return cv.Total[lo] + (cv.Total[hi] - cv.Total[lo]) * t;
-        }).ToArray();
     }
 }

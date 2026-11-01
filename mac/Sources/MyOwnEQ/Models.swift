@@ -210,6 +210,47 @@ struct SyncInfo: Codable, Equatable {
     var hostPort: Int?
     var hostAddresses: [String]?
     var pending: Int
+    /// Machines using this sync (from the server), online or seen before.
+    var peers: [Peer]?
+}
+
+/// A machine in the sync, as the server reports it.
+struct Peer: Codable, Equatable, Hashable {
+    var machine: String
+    var name: String = ""
+    var platform: String = ""
+    var version: String = ""
+    var online: Bool
+    var lastSeen: UInt64
+
+    enum CodingKeys: String, CodingKey { case machine, name, platform, version, online, lastSeen }
+    init(from d: Decoder) throws {
+        let c = try d.container(keyedBy: CodingKeys.self)
+        machine = try c.decode(String.self, forKey: .machine)
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        platform = try c.decodeIfPresent(String.self, forKey: .platform) ?? ""
+        version = try c.decodeIfPresent(String.self, forKey: .version) ?? ""
+        online = try c.decodeIfPresent(Bool.self, forKey: .online) ?? false
+        lastSeen = try c.decodeIfPresent(UInt64.self, forKey: .lastSeen) ?? 0
+    }
+
+    var displayName: String { name.isEmpty ? machine : name }
+}
+
+/// Shared constants from the core (`ui_constants`).
+struct UiConstants: Codable {
+    struct Spot: Codable { var name: String; var freq: Double }
+    var graphic10: [Double]
+    var graphic31: [Double]
+    var macros: [Spot]
+    var maxBands: Int
+}
+
+/// A short message shown as a toast; disappears by itself.
+struct Notice: Equatable, Identifiable {
+    let id = UUID()
+    var text: String
+    var isError = false
 }
 
 /// Updater status (core/update). `state`: off | idle | checking | up_to_date |
@@ -224,6 +265,8 @@ struct UpdateInfo: Codable, Equatable {
     var checkedAt: Int?
 
     var isReady: Bool { state == "ready" }
+    /// Checking or downloading right now (show a spinner).
+    var isBusy: Bool { state == "checking" || state == "downloading" }
     var label: String {
         switch state {
         case "checking": L("Checking for updates…")

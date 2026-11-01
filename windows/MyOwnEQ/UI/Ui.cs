@@ -15,10 +15,11 @@ public static class Ui
     public static ThemeStore Store { get; private set; } = null!;
     public static Lang Lang { get; private set; } = null!;
 
-    public static void Init()
+    /// <summary>After the core exists: themes and languages are loaded through it.</summary>
+    public static void Init(CoreBridge core)
     {
-        Store = new ThemeStore();
-        Lang = new Lang(Store.Settings.Language);
+        Store = new ThemeStore(core);
+        Lang = new Lang(Store.Settings.Language, core);
     }
 
     public static Theme T => Store.Current;
@@ -29,12 +30,12 @@ public static class Ui
     public static readonly FontFamily Icons = new("Segoe Fluent Icons, Segoe MDL2 Assets");
 
     // ---- glyphs (Segoe Fluent Icons)
-    public const string GHeadphones = "", GSync = "", GSettings = "", GPalette = "",
-        GAdd = "", GEdit = "", GVolume = "", GMute = "", GBolt = "",
-        GStar = "", GStarFill = "", GSearch = "", GDelete = "", GCheck = "",
-        GShield = "", GEar = "", GChevron = "", GWave = "", GSpeaker = "",
-        GDial = "", GSparkle = "", GGlobe = "", GLink = "", GWarning = "",
-        GDownload = "", GInfo = "", GPhoto = "", GDoc = "", GPencilSave = "";
+    public const string GHeadphones = "\uE7F6", GSync = "\uE895", GSettings = "\uE713", GPalette = "\uE790",
+        GAdd = "\uE710", GEdit = "\uE70F", GVolume = "\uE767", GMute = "\uE74F", GBolt = "\uE945",
+        GStar = "\uE734", GStarFill = "\uE735", GSearch = "\uE721", GDelete = "\uE74D", GCheck = "\uE73E",
+        GShield = "\uEA18", GEar = "\uE7F5", GChevron = "\uE76C", GWave = "\uE9D9", GSpeaker = "\uE7F5",
+        GDial = "\uE9E9", GSparkle = "\uE945", GGlobe = "\uE774", GLink = "\uE71B", GWarning = "\uE7BA",
+        GDownload = "\uE896", GInfo = "\uE946", GPhoto = "\uEB9F", GDoc = "\uE8A5", GPencilSave = "\uE74E";
 
     // ---- text
 
@@ -111,14 +112,26 @@ public static class Ui
     public static Border Glass(UIElement child, double radius = 14, bool highlighted = false, double padding = 14, bool shadow = true)
     {
         var t = T;
+        // Frosted look without real backdrop blur (WPF can't blur what's behind):
+        // denser panel, lighter at the top like light on glass, and a lit top-left edge.
+        var top = Theme.Mix(t.PanelColor, Colors.White, t.Dark ? 0.07 : 0.35);
+        var bg = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(0, 1) };
+        bg.GradientStops.Add(new GradientStop(Theme.WithAlpha(top, t.Dark ? 0.78 : 0.85), 0));
+        bg.GradientStops.Add(new GradientStop(Theme.WithAlpha(t.PanelColor, t.Dark ? 0.70 : 0.78), 1));
+        bg.Freeze();
+        var edge = new LinearGradientBrush { StartPoint = new Point(0, 0), EndPoint = new Point(1, 1) };
+        edge.GradientStops.Add(new GradientStop(Theme.WithAlpha(Colors.White, t.Dark ? 0.22 : 0.7), 0));
+        edge.GradientStops.Add(new GradientStop(Theme.WithAlpha(t.Ink, 0.06), 0.55));
+        edge.GradientStops.Add(new GradientStop(Theme.WithAlpha(t.Ink, 0.03), 1));
+        edge.Freeze();
         var b = new Border
         {
             Child = child,
             CornerRadius = new CornerRadius(radius),
             Padding = new Thickness(padding),
-            Background = Theme.Frozen(Theme.WithAlpha(t.PanelColor, t.Dark ? 0.62 : 0.72)),
+            Background = bg,
             BorderThickness = new Thickness(highlighted ? 1.5 : 1),
-            BorderBrush = highlighted ? t.DiagonalBrush() : new LinearGradientBrush(Theme.WithAlpha(t.Ink, 0.16), Theme.WithAlpha(t.Ink, 0.04), 45),
+            BorderBrush = highlighted ? t.DiagonalBrush() : edge,
         };
         if (shadow) b.Effect = new DropShadowEffect { BlurRadius = 18, ShadowDepth = 4, Direction = 270, Opacity = t.Dark ? 0.35 : 0.1, Color = Colors.Black };
         return b;
@@ -254,6 +267,35 @@ public static class Ui
         e.BeginAnimation(UIElement.OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(260)));
         tt.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(0, TimeSpan.FromMilliseconds(380))
         { EasingFunction = new BackEase { Amplitude = 0.3, EasingMode = EasingMode.EaseOut } });
+    }
+
+    // ---- notices
+
+    /// <summary>Toast for <see cref="AppController.Notice"/>; click to dismiss. Null when none.</summary>
+    // parity: notices
+    public static FrameworkElement? Toast(AppController c)
+    {
+        if (c.Notice is not { } n) return null;
+        var t = T;
+        var row = HStack(8, Glyph(n.IsError ? GWarning : GInfo, 14, n.IsError ? Theme.Frozen(Colors.Orange) : Theme.Frozen(t.AccentColor)), Text(n.Text, 13));
+        var box = Glass(row, radius: 14, highlighted: n.IsError, padding: 12, shadow: true);
+        box.Cursor = Cursors.Hand;
+        box.MaxWidth = 520;
+        box.HorizontalAlignment = HorizontalAlignment.Center;
+        box.VerticalAlignment = VerticalAlignment.Bottom;
+        box.MouseLeftButtonUp += (_, _) => c.DismissNotice();
+        return box;
+    }
+
+    /// <summary>Small indeterminate spinner for long actions (update check).</summary>
+    public static FrameworkElement Spinner()
+    {
+        var g = Glyph("\uE895", 14, T.CurveBrush());
+        g.RenderTransformOrigin = new Point(0.5, 0.5);
+        var rot = new RotateTransform();
+        g.RenderTransform = rot;
+        rot.BeginAnimation(RotateTransform.AngleProperty, new DoubleAnimation(0, 360, TimeSpan.FromSeconds(1)) { RepeatBehavior = RepeatBehavior.Forever });
+        return g;
     }
 
     // ---- formatting

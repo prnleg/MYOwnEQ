@@ -1,16 +1,13 @@
 import SwiftUI
 
-private let graphic10: [Double] = [32, 64, 125, 250, 500, 1000, 2000, 4000, 8000, 16000]
-private let graphic31: [Double] = [20, 25, 31.5, 40, 50, 63, 80, 100, 125, 160, 200, 250, 315, 400, 500, 630, 800,
-                                   1000, 1250, 1600, 2000, 2500, 3150, 4000, 5000, 6300, 8000, 10000, 12500, 16000, 20000]
 
+// parity: pro-panel
 struct ProPanel: View {
     @EnvironmentObject var c: AppController
     @EnvironmentObject var theme: ThemeStore
     @Binding var profile: Profile
     /// Parametric bands kept while trying a graphic layout, so going back
     /// without touching the sliders restores them exactly.
-    @State private var stash: (bands: [Band], graphic: EqLayer)?
     @Binding var selected: Int?
 
     private enum Mode: String, CaseIterable {
@@ -66,15 +63,14 @@ struct ProPanel: View {
 
             Card(title: L("Output"), icon: "speaker.wave.3") {
                 VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Toggle(L("Auto preamp"), isOn: Binding(
-                            get: { profile.preamp == .auto },
-                            set: { profile.preamp = $0 ? .auto : .manual(0) }))
-                        if case .manual(let db) = profile.preamp {
+                    Toggle(L("Auto preamp"), isOn: Binding(
+                        get: { profile.preamp == .auto },
+                        set: { profile.preamp = $0 ? .auto : .manual(0) }))
+                    if case .manual(let db) = profile.preamp {
+                        HStack {
+                            Text(L("Preamp")).frame(width: 70, alignment: .leading)
                             GlowSlider(value: Binding(get: { db }, set: { profile.preamp = .manual(($0 * 10).rounded() / 10) }), range: -24...6)
                             Text(String(format: "%+.1f dB", db)).font(.callout.monospacedDigit()).frame(width: 64)
-                        } else {
-                            Spacer()
                         }
                     }
                     Toggle(L("Limiter (prevents clipping at -0.1 dBFS)"), isOn: $profile.limiter)
@@ -112,12 +108,8 @@ struct ProPanel: View {
     }
 
     private func addBand() {
-        guard case .parametric(var b) = profile.eq else { return }
-        // Put the new band in the widest gap between existing ones.
-        let fs = ([20.0] + b.map(\.freq).sorted() + [20000.0])
-        var best = 1000.0, gap = 0.0
-        for (a, c) in zip(fs, fs.dropFirst()) where log(c / a) > gap { gap = log(c / a); best = sqrt(a * c) }
-        b.append(Band(kind: .peak, freq: best.rounded(), gainDb: 0, q: 1.0))
+        guard case .parametric(var b) = profile.eq, let band = c.suggestBand(profile.eq) else { return }
+        b.append(band)
         profile.eq = .parametric(b)
         selected = b.count - 1
     }
@@ -131,50 +123,14 @@ struct ProPanel: View {
 
     /// Switching layouts keeps the sound: the current EQ curve is sampled at
     /// the graphic frequencies, and graphic sliders become peaking bands.
+    /// Switch layout keeping the sound. The core samples the curve and keeps the
+    /// way back to the exact original bands (same logic on every platform).
+    // parity: eq-layout-convert
     private func switchMode(_ m: Mode) {
         guard m != mode else { return }
-        let before = profile.eq
-        switch m {
-        case .parametric:
-            guard case .graphic(let pts) = before else { break }
-            if let st = stash, st.graphic == before {
-                profile.eq = .parametric(st.bands) // untouched: exact restore
-            } else {
-                profile.eq = .parametric(pts.filter { $0.gainDb != 0 }.map {
-                    Band(kind: .peak, freq: $0.freq, gainDb: $0.gainDb, q: pts.count > 10 ? 4.3 : 1.41)
-                })
-            }
-            stash = nil
-        case .g10, .g31:
-            let freqs = m == .g10 ? graphic10 : graphic31
-            let gains = response(of: before, at: freqs)
-            let new = EqLayer.graphic(zip(freqs, gains).map { GraphicPoint(freq: $0, gainDb: min(max(($1 * 2).rounded() / 2, -12), 12)) })
-            if case .parametric(let bands) = before {
-                stash = (bands, new)
-            } else if let st = stash, st.graphic == before {
-                stash = (st.bands, new) // still untouched, keep the way back
-            } else {
-                stash = nil
-            }
-            profile.eq = new
-        }
+        let to = m == .parametric ? "parametric" : m == .g10 ? "graphic10" : "graphic31"
+        if let eq = c.convertEq(profile.eq, to: to, for: profile.id) { profile.eq = eq }
         selected = nil
-    }
-
-    /// Gain (dB) of an EQ layer alone at the given frequencies.
-    private func response(of eq: EqLayer, at freqs: [Double]) -> [Double] {
-        var probe = Profile.new("probe")
-        probe.eq = eq
-        probe.preamp = .manual(0)
-        probe.limiter = false
-        guard let cv = c.curve(for: probe, points: 512), cv.freqs.count > 1 else { return freqs.map { _ in 0 } }
-        return freqs.map { f in
-            guard let hi = cv.freqs.firstIndex(where: { $0 >= f }) else { return cv.total.last ?? 0 }
-            guard hi > 0 else { return cv.total[0] }
-            let lo = hi - 1
-            let t = log(f / cv.freqs[lo]) / log(cv.freqs[hi] / cv.freqs[lo])
-            return cv.total[lo] + (cv.total[hi] - cv.total[lo]) * t
-        }
     }
 }
 

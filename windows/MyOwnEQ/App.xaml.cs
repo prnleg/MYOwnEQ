@@ -76,8 +76,8 @@ public partial class App : Application
 
     private void Start(string[] args)
     {
-        Ui.Init(); // themes, language, UI prefs (before anything shows text)
         _controller = new AppController(Dispatcher);
+        Ui.Init(_controller.Core); // themes, language, UI prefs (loaded by the core)
 
         // A verified update downloaded last session: this launch is the "restart".
         if (_controller.ShouldInstallOnStart && _controller.ApplyUpdate())
@@ -99,6 +99,7 @@ public partial class App : Application
     /// <summary>Start everything, visit every page (Easy + Pro editor, Devices, Sync,
     /// Preferences, tray panel), save a screenshot of each to logs/selftest-*.png and exit
     /// 0, or 1 on any error. Runs in CI with a throwaway data folder.</summary>
+    // parity: selftest
     private void RunSelfTest()
     {
         try

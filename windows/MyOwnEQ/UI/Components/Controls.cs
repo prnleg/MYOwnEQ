@@ -69,6 +69,7 @@ public static class Frames
 }
 
 /// <summary>Theme base color with slow drifting color blobs; pulses with the music.</summary>
+// parity: animated-background
 public sealed class ThemeBackground : FrameworkElement
 {
     private readonly AppController _c;

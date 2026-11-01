@@ -165,6 +165,42 @@ pub enum Command {
     UpdateApply {
         app_path: Option<String>,
     },
+    /// Who this machine is for the other machines in sync (call at startup).
+    SetAppInfo {
+        name: String,
+        platform: String,
+        version: String,
+    },
+    /// Turn an edited preset draft into a new profile `name` (presets are
+    /// read-only). Selects it if the preset was playing. Replies with `profile`.
+    ForkPreset {
+        draft: Profile,
+        name: String,
+    },
+    /// Switch a profile's EQ layout keeping the sound; replies with `eq`.
+    ConvertEq {
+        profile: Id,
+        eq: myowneq_model::EqLayer,
+        to: myowneq_model::edit::Layout,
+    },
+    /// Where a new band should go; replies with `band` (null if none fits).
+    SuggestBand {
+        eq: myowneq_model::EqLayer,
+    },
+    /// Shared constants the UIs need (graphic frequencies, knob spots, ranges).
+    UiConstants,
+    /// Parse + validate theme files from `dirs` (later folders override by id).
+    LoadThemes {
+        dirs: Vec<String>,
+    },
+    /// Language packs from `dirs` + which one to use for `choice` / `preferred`.
+    LoadLangs {
+        dirs: Vec<String>,
+        #[serde(default)]
+        choice: Option<String>,
+        #[serde(default)]
+        preferred: Vec<String>,
+    },
 }
 
 fn default_discover_ms() -> u64 {
@@ -192,6 +228,12 @@ impl Command {
                 | Command::UpdateTick
                 | Command::UpdateSetAuto { .. }
                 | Command::UpdateApply { .. }
+                | Command::SetAppInfo { .. }
+                | Command::ConvertEq { .. }
+                | Command::SuggestBand { .. }
+                | Command::UiConstants
+                | Command::LoadThemes { .. }
+                | Command::LoadLangs { .. }
         )
     }
 }
@@ -236,6 +278,8 @@ pub struct Core {
     updater: Option<myowneq_update::Updater>,
     auto_update: bool,
     last_update_check: Option<std::time::Instant>,
+    /// Parametric bands kept while a profile tries a graphic layout.
+    eq_stash: std::collections::HashMap<Id, myowneq_model::edit::Stash>,
 }
 
 impl Core {
@@ -291,6 +335,7 @@ impl Core {
             sync,
             updater: None,
             last_update_check: None,
+            eq_stash: std::collections::HashMap::new(),
         };
         // Loading heals presets (Library::restore_presets); persist that now
         // so the file on disk matches what the app shows.
@@ -621,6 +666,89 @@ impl Core {
                     .map_err(|e| e.to_string())?;
                 return Ok(json!({ "ok": true }));
             }
+            SetAppInfo {
+                name,
+                platform,
+                version,
+            } => {
+                self.sync.set_info(myowneq_sync::PeerInfo {
+                    name,
+                    platform,
+                    version,
+                });
+                return Ok(json!({ "ok": true, "sync": self.sync.status_json() }));
+            }
+            ForkPreset { draft, name } => {
+                if !myowneq_model::presets::is_preset(draft.id) {
+                    return Err("not a preset".into());
+                }
+                let was_active = self.resolution_profile() == Some(draft.id);
+                let mut p = draft;
+                p.id = myowneq_model::new_id();
+                p.name = name;
+                p.tags.retain(|t| t != "builtin");
+                let id = p.id;
+                self.lib.upsert_profile(p.clone());
+                if was_active {
+                    if let Some(g) = self.current_group() {
+                        self.lib.select(g, id, None, &mut self.local);
+                        self.save_local();
+                    }
+                }
+                self.save_library();
+                self.refresh();
+                return Ok(self.state_with(json!({ "profile": p })));
+            }
+            ConvertEq { profile, eq, to } => {
+                let (new, stash) = myowneq_model::edit::convert(
+                    &eq,
+                    to,
+                    self.sample_rate,
+                    self.eq_stash.get(&profile),
+                );
+                match stash {
+                    Some(s) => self.eq_stash.insert(profile, s),
+                    None => self.eq_stash.remove(&profile),
+                };
+                return Ok(json!({ "ok": true, "eq": new }));
+            }
+            SuggestBand { eq } => {
+                return Ok(json!({ "ok": true, "band": myowneq_model::edit::suggest_band(&eq) }));
+            }
+            UiConstants => {
+                let macros: Vec<Value> = myowneq_model::profile::MACRO_SPOTS
+                    .iter()
+                    .map(|(n, f)| json!({ "name": n, "freq": f }))
+                    .collect();
+                return Ok(json!({
+                    "ok": true,
+                    "graphic10": myowneq_model::profile::GRAPHIC_10,
+                    "graphic31": myowneq_model::profile::GRAPHIC_31,
+                    "macros": macros,
+                    "max_bands": myowneq_dsp::MAX_BANDS,
+                    "gain_db": [-24.0, 24.0],
+                    "graphic_db": [-myowneq_model::edit::GRAPHIC_RANGE_DB, myowneq_model::edit::GRAPHIC_RANGE_DB],
+                    "macro_db": [-12.0, 12.0],
+                    "q": [0.1, 30.0],
+                    "max_boost_db": myowneq_model::MAX_BOOST_DB,
+                }));
+            }
+            LoadThemes { dirs } => {
+                let l = myowneq_model::assets::load_themes(&dirs);
+                return Ok(json!({ "ok": true, "themes": l.items, "errors": l.errors }));
+            }
+            LoadLangs {
+                dirs,
+                choice,
+                preferred,
+            } => {
+                let l = myowneq_model::assets::load_langs(&dirs);
+                let code =
+                    myowneq_model::assets::pick_lang(&l.items, choice.as_deref(), &preferred);
+                return Ok(
+                    json!({ "ok": true, "packs": l.items, "errors": l.errors, "code": code }),
+                );
+            }
             SyncDiscover { timeout_ms } => {
                 let found = myowneq_sync::discovery::browse(std::time::Duration::from_millis(
                     timeout_ms.min(5000),
@@ -710,6 +838,16 @@ impl Core {
                 v
             }
             None => json!({ "state": "off", "auto": self.auto_update }),
+        }
+    }
+
+    fn resolution_profile(&self) -> Option<Id> {
+        match &self.resolution {
+            Resolution::Rule { profile, .. }
+            | Resolution::RuleOverride { profile, .. }
+            | Resolution::Selected(profile)
+            | Resolution::Default(profile) => Some(*profile),
+            Resolution::Flat => None,
         }
     }
 
@@ -874,6 +1012,128 @@ mod tests {
             (core.params().preamp_db - base - 12.0).abs() < 1e-9,
             "capped at +12 dB"
         );
+    }
+
+    #[test]
+    fn fork_preset_makes_a_profile_and_keeps_it_playing() {
+        let mut core = Core::new(None, "m");
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"set_device","device":{"uid":"d","name":"D"}}),
+        );
+        let gid: Id = r["group"].as_str().unwrap().parse().unwrap();
+        let preset = core
+            .lib
+            .profiles
+            .iter()
+            .find(|p| p.name == "FPS")
+            .unwrap()
+            .clone();
+        cmd(
+            &mut core,
+            json!({"cmd":"select","group":gid,"profile":preset.id}),
+        );
+        let mut draft = preset.clone();
+        draft.macros.bass = 3.0;
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"fork_preset","draft":draft,"name":"FPS (mine)"}),
+        );
+        let new_id: Id = r["profile"]["id"].as_str().unwrap().parse().unwrap();
+        assert_ne!(new_id, preset.id);
+        let p = core.lib.profile(new_id).unwrap();
+        assert_eq!((p.name.as_str(), p.macros.bass), ("FPS (mine)", 3.0));
+        assert!(p.tags.is_empty());
+        assert_eq!(r["resolution"]["profile"], json!(new_id), "keeps playing");
+        assert_eq!(
+            core.lib.profile(preset.id),
+            Some(&preset),
+            "preset untouched"
+        );
+        // Not a preset: refused.
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"fork_preset","draft":Profile::new("x"),"name":"y"}),
+        );
+        assert_eq!(r["ok"], false);
+    }
+
+    #[test]
+    fn convert_eq_round_trips_through_the_stash() {
+        let mut core = Core::new(None, "m");
+        let fps = core
+            .lib
+            .profiles
+            .iter()
+            .find(|p| p.name == "FPS")
+            .unwrap()
+            .clone();
+        let id = Profile::new("x").id;
+        let g = cmd(
+            &mut core,
+            json!({"cmd":"convert_eq","profile":id,"eq":fps.eq,"to":"graphic31"}),
+        );
+        assert_eq!(g["eq"]["type"], "graphic");
+        assert_eq!(g["eq"]["points"].as_array().unwrap().len(), 31);
+        let back = cmd(
+            &mut core,
+            json!({"cmd":"convert_eq","profile":id,"eq":g["eq"],"to":"parametric"}),
+        );
+        assert_eq!(back["eq"], serde_json::to_value(&fps.eq).unwrap());
+        let b = cmd(&mut core, json!({"cmd":"suggest_band","eq":fps.eq}));
+        assert_eq!(b["band"]["kind"], "peak");
+        let k = cmd(&mut core, json!({"cmd":"ui_constants"}));
+        assert_eq!(k["graphic10"].as_array().unwrap().len(), 10);
+        assert_eq!(k["macros"][0]["name"], "Bass");
+    }
+
+    #[test]
+    fn themes_and_langs_load_from_the_repo() {
+        let mut core = Core::new(None, "m");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let t = cmd(
+            &mut core,
+            json!({"cmd":"load_themes","dirs":[root.join("themes")]}),
+        );
+        assert!(t["themes"].as_array().unwrap().len() >= 5);
+        assert_eq!(t["errors"].as_array().unwrap().len(), 0);
+        let l = cmd(
+            &mut core,
+            json!({"cmd":"load_langs","dirs":[root.join("lang")],"preferred":["pt-BR"]}),
+        );
+        assert_eq!(l["code"], "pt-BR");
+    }
+
+    #[test]
+    fn hosting_without_a_token_gets_a_pairing_code() {
+        let mut core = Core::new(None, "m");
+        cmd(
+            &mut core,
+            json!({"cmd":"set_app_info","name":"Test Mac","platform":"mac","version":"9.9"}),
+        );
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"sync_configure","config":{"mode":"host","port":0,"token":""}}),
+        );
+        let code = r["sync"]["token"].as_str().unwrap();
+        assert_eq!(code.len(), 9, "{code}");
+        assert_eq!(&code[4..5], "-");
+        cmd(
+            &mut core,
+            json!({"cmd":"sync_configure","config":{"mode":"off"}}),
+        );
+    }
+
+    #[test]
+    fn check_now_says_checking_immediately() {
+        let mut core = Core::new(None, "m");
+        cmd(
+            &mut core,
+            json!({"cmd":"update_configure","version":"0.0.1","platform":"mac"}),
+        );
+        let r = cmd(&mut core, json!({"cmd":"update_check"}));
+        let state = r["update"]["state"].as_str().unwrap();
+        assert_ne!(state, "idle", "UI must see progress right away");
     }
 
     #[test]

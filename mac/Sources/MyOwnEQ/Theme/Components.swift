@@ -212,3 +212,33 @@ struct MiniCurve: View {
         }
     }
 }
+
+/// Toast for `AppController.notice`: slides in, clears itself, click to dismiss.
+// parity: notices
+struct NoticeToast: View {
+    @EnvironmentObject var c: AppController
+    @EnvironmentObject var theme: ThemeStore
+
+    var body: some View {
+        ZStack {
+            if let n = c.notice {
+                HStack(spacing: 8) {
+                    Image(systemName: n.isError ? "exclamationmark.triangle.fill" : "info.circle.fill")
+                        .foregroundStyle(n.isError ? AnyShapeStyle(.orange) : AnyShapeStyle(theme.current.accentColor))
+                    Text(n.text).font(.callout).fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .background(GlassBackground(radius: 14, highlighted: n.isError))
+                .onTapGesture { c.dismissNotice() }
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .id(n.id)
+            }
+        }
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: c.notice)
+    }
+}
+
+/// Small spinner for long actions (update check).
+struct BusySpinner: View {
+    var body: some View { ProgressView().controlSize(.small) }
+}

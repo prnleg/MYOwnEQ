@@ -1,3 +1,4 @@
+using System.Threading;
 using System;
 using System.IO;
 using System.Linq;
@@ -86,9 +87,38 @@ using (var core = new CoreBridge(dir, "win-test"))
     s = core.DecodeLast<CoreState>()!;
     Check(s.CurrentGroup!.BoostDb == 6 && s.CurrentGroup.Name == "Renamed on PC", "boost_db round-trips through a Windows save");
 
-    r = core.Command("sync_configure", new { config = new { mode = "host", port = 0, token = "ABCD-EFGH" } });
+    // Shared editing logic lives in the core: the C# shapes must match.
+    var consts = core.Decode<UiConstants>(core.Command("ui_constants"));
+    Check(consts is { Graphic10.Count: 10, Graphic31.Count: 31, Macros.Count: 4 } && consts.Macros[0].Name == "Bass", "ui_constants decode");
+    var fpsP = s.Library.Profiles.First(p => p.Name == "FPS");
+    EqLayer eq = fpsP.Eq;
+    var g31 = core.Decode<EqLayer>(core.Command("convert_eq", new { profile = fpsP.Id, eq, to = "graphic31" })["eq"]);
+    Check(g31 is GraphicLayer { Points.Count: 31 }, "convert_eq → graphic31 (polymorphic EqLayer sent from C#)");
+    EqLayer gEq = g31!;
+    var restored = core.Decode<EqLayer>(core.Command("convert_eq", new { profile = fpsP.Id, eq = gEq, to = "parametric" })["eq"]);
+    Check(restored is ParametricLayer bp && bp.Bands.Count == ((ParametricLayer)fpsP.Eq).Bands.Count, "convert_eq round trip restores bands");
+    var band = core.Decode<Band>(core.Command("suggest_band", new { eq })["band"]);
+    Check(band is { Kind: FilterKind.Peak }, "suggest_band decode");
+    var draft = Json.Clone(fpsP);
+    draft.Macros.Bass = 2;
+    r = core.Command("fork_preset", new { draft, name = "FPS (mine)" });
+    var forked = core.Decode<Profile>(r["profile"]);
+    Check(forked is not null && forked.Id != fpsP.Id && !forked.Tags.Contains("builtin") && forked.Name == "FPS (mine)", "fork_preset from C#");
     s = core.DecodeLast<CoreState>()!;
-    Check(s.Sync.Mode == "host" && s.Sync.HostPort > 0 && s.Sync.Token == "ABCD-EFGH", $"host mode starts (port {s.Sync.HostPort})");
+
+    core.Command("set_app_info", new { name = "Interop PC", platform = "windows", version = "9.9.9" });
+    r = core.Command("sync_configure", new { config = new { mode = "host", port = 0, token = "" } });
+    s = core.DecodeLast<CoreState>()!;
+    Check(s.Sync.Token is { Length: 9 }, "host without token gets a core pairing code");
+    // The host connects to itself: it should list this machine as online.
+    for (int i = 0; i < 50 && !(s.Sync.Peers?.Any(p => p.Online && p.Name == "Interop PC") ?? false); i++)
+    {
+        Thread.Sleep(100);
+        r = core.Command("sync_tick");
+        s.Sync = core.Decode<SyncInfo>(r["sync"]) ?? s.Sync;
+    }
+    Check(s.Sync.Peers?.Any(p => p.Online && p.Name == "Interop PC" && p.Platform == "windows") == true, "peers decode (this machine online)");
+    Check(s.Sync.Mode == "host" && s.Sync.HostPort > 0 && s.Sync.Token?.Length == 9, $"host mode starts (port {s.Sync.HostPort})");
     r = core.Command("sync_tick");
     Check(r["ok"]?.GetValue<bool>() == true, "sync_tick");
     core.Command("sync_configure", new { config = new { mode = "off" } });

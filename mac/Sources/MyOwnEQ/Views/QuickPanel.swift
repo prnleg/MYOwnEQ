@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Menubar popover: device, on/off, why-this-profile, live curve, favorites, Easy knobs.
+// parity: tray-panel
 struct QuickPanel: View {
     @EnvironmentObject var c: AppController
     @EnvironmentObject var theme: ThemeStore
@@ -43,9 +44,7 @@ struct QuickPanel: View {
                 Label(L("Test build · %@", dev), systemImage: "hammer.fill")
                     .font(.caption2.weight(.semibold)).foregroundStyle(.secondary)
             }
-            if let m = c.lastMessage {
-                Text(m).font(.caption).foregroundStyle(.secondary).transition(.opacity)
-            }
+            NoticeToast()
         }
         .padding(14)
         .frame(width: 340)
@@ -65,7 +64,7 @@ struct QuickPanel: View {
                     Image(systemName: c.current?.kind.symbol ?? "speaker.slash").font(.caption)
                     Text(c.state?.currentGroup?.name ?? c.current?.name ?? L("No output")).font(.headline).lineLimit(1)
                 }
-                Text(c.engineRunning ? "\(Int((c.state?.sampleRate ?? 0) / 1000)) kHz · EQ on" : "EQ off")
+                Text(c.engineRunning ? "\(Int((c.state?.sampleRate ?? 0) / 1000)) kHz · " + L("EQ on") : L("EQ off"))
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
@@ -186,15 +185,10 @@ struct EasyKnobs: View {
                     c.preview(d)
                 }
             ), range: -12...12, step: 0.5) { editing in
-                if !editing, var d = draft {
+                if !editing, let d = draft {
                     if d.isBuiltin {
-                        // Presets never change: the tweak becomes a new profile.
-                        let base = d.name
-                        d.id = newID()
-                        d.name = L("%@ (mine)", base)
-                        d.tags.removeAll { $0 == "builtin" }
-                        c.save(d)
-                        c.select(d.id)
+                        // Presets never change: the core turns the tweak into a new profile.
+                        _ = c.forkPreset(d, originalName: d.name)
                     } else {
                         c.save(d)
                     }

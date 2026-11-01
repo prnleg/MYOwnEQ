@@ -11,8 +11,9 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use futures_util::{SinkExt, StreamExt};
-use myowneq_sync::{Acked, ClientMsg, Op, SeqOp, ServerMsg, Stamp};
+use myowneq_sync::{Acked, ClientMsg, Op, Peer, PeerInfo, SeqOp, ServerMsg, Stamp};
 use rusqlite::{params, Connection, OptionalExtension};
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -50,7 +51,14 @@ impl Store {
                  value TEXT,
                  seq INTEGER NOT NULL
              );
-             CREATE INDEX IF NOT EXISTS entities_seq ON entities(seq);",
+             CREATE INDEX IF NOT EXISTS entities_seq ON entities(seq);
+             CREATE TABLE IF NOT EXISTS peers (
+                 machine TEXT PRIMARY KEY,
+                 name TEXT NOT NULL,
+                 platform TEXT NOT NULL,
+                 version TEXT NOT NULL,
+                 last_seen INTEGER NOT NULL
+             );",
         )?;
         let id: Option<String> = conn
             .query_row("SELECT v FROM meta WHERE k='server_id'", [], |r| r.get(0))
@@ -142,6 +150,36 @@ impl Store {
         Ok(res)
     }
 
+    /// Machines that have used this server (offline as stored).
+    pub fn peers(&self) -> rusqlite::Result<Vec<Peer>> {
+        let c = self.conn.lock().expect("db lock");
+        let mut st = c.prepare("SELECT machine, name, platform, version, last_seen FROM peers")?;
+        let rows = st.query_map([], |r| {
+            Ok(Peer {
+                machine: r.get(0)?,
+                info: PeerInfo {
+                    name: r.get(1)?,
+                    platform: r.get(2)?,
+                    version: r.get(3)?,
+                },
+                online: false,
+                last_seen: r.get::<_, i64>(4)? as u64,
+            })
+        })?;
+        rows.collect()
+    }
+
+    pub fn save_peer(&self, p: &Peer) -> rusqlite::Result<()> {
+        let c = self.conn.lock().expect("db lock");
+        c.execute(
+            "INSERT INTO peers (machine, name, platform, version, last_seen) VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(machine) DO UPDATE SET name=excluded.name, platform=excluded.platform,
+               version=excluded.version, last_seen=excluded.last_seen",
+            params![p.machine, p.info.name, p.info.platform, p.info.version, p.last_seen as i64],
+        )?;
+        Ok(())
+    }
+
     pub fn since(&self, since: u64) -> rusqlite::Result<Vec<SeqOp>> {
         let c = self.conn.lock().expect("db lock");
         let mut st =
@@ -206,11 +244,88 @@ struct AppState {
     store: Arc<Store>,
     token: Arc<String>,
     bus: broadcast::Sender<Arc<Vec<SeqOp>>>,
+    presence: Arc<Presence>,
+}
+
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_millis() as u64)
+}
+
+/// Who is connected right now (a machine can have more than one socket while
+/// reconnecting), plus everyone seen before. Changes are broadcast to all sessions.
+struct Presence {
+    store: Arc<Store>,
+    peers: Mutex<HashMap<String, (Peer, u32)>>,
+    bus: broadcast::Sender<Arc<Vec<Peer>>>,
+}
+
+impl Presence {
+    fn new(store: Arc<Store>) -> Presence {
+        let known = store.peers().unwrap_or_default();
+        let (bus, _) = broadcast::channel(64);
+        Presence {
+            store,
+            peers: Mutex::new(
+                known
+                    .into_iter()
+                    .map(|p| (p.machine.clone(), (p, 0)))
+                    .collect(),
+            ),
+            bus,
+        }
+    }
+
+    fn list(&self) -> Vec<Peer> {
+        let m = self.peers.lock().expect("presence");
+        let mut v: Vec<Peer> = m.values().map(|(p, _)| p.clone()).collect();
+        v.sort_by(|a, b| a.machine.cmp(&b.machine));
+        v
+    }
+
+    fn update(&self, machine: &str, info: Option<PeerInfo>, delta: i32) {
+        {
+            let mut m = self.peers.lock().expect("presence");
+            let entry = m.entry(machine.to_string()).or_insert_with(|| {
+                (
+                    Peer {
+                        machine: machine.to_string(),
+                        info: PeerInfo::default(),
+                        online: false,
+                        last_seen: 0,
+                    },
+                    0,
+                )
+            });
+            if let Some(i) = info {
+                entry.0.info = i;
+            }
+            entry.1 = (entry.1 as i32 + delta).max(0) as u32;
+            entry.0.online = entry.1 > 0;
+            entry.0.last_seen = now_ms();
+            let _ = self.store.save_peer(&entry.0);
+        }
+        let _ = self.bus.send(Arc::new(self.list()));
+    }
+}
+
+/// Marks the machine offline when the session ends, however it ends.
+struct Online {
+    presence: Arc<Presence>,
+    machine: String,
+}
+
+impl Drop for Online {
+    fn drop(&mut self) {
+        self.presence.update(&self.machine, None, -1);
+    }
 }
 
 pub fn router(store: Arc<Store>, token: String) -> Router {
     let (bus, _) = broadcast::channel(256);
     let state = AppState {
+        presence: Arc::new(Presence::new(store.clone())),
         store,
         token: Arc::new(token),
         bus,
@@ -258,9 +373,14 @@ async fn session(socket: WebSocket, st: AppState) {
 
     // Hello (10 s deadline).
     let hello = tokio::time::timeout(Duration::from_secs(10), stream.next()).await;
-    let since = match hello {
+    let (since, machine, info) = match hello {
         Ok(Some(Ok(Message::Text(t)))) => match serde_json::from_str::<ClientMsg>(t.as_str()) {
-            Ok(ClientMsg::Hello { token, since, .. }) if same(&token, &st.token) => since,
+            Ok(ClientMsg::Hello {
+                token,
+                since,
+                machine,
+                info,
+            }) if same(&token, &st.token) => (since, machine, info),
             Ok(ClientMsg::Hello { .. }) => {
                 send(
                     &mut sink,
@@ -277,11 +397,27 @@ async fn session(socket: WebSocket, st: AppState) {
     };
 
     let mut bus = st.bus.subscribe();
+    let mut peers_bus = st.presence.bus.subscribe();
+    st.presence.update(&machine, Some(info), 1);
+    let _online = Online {
+        presence: st.presence.clone(),
+        machine,
+    };
     if !send(
         &mut sink,
         &ServerMsg::Welcome {
             seq: st.store.seq(),
             server_id: st.store.server_id.clone(),
+        },
+    )
+    .await
+    {
+        return;
+    }
+    if !send(
+        &mut sink,
+        &ServerMsg::Peers {
+            peers: st.presence.list(),
         },
     )
     .await
@@ -351,6 +487,15 @@ async fn session(socket: WebSocket, st: AppState) {
                 }
                 // Too slow to keep up: drop it, the client reconnects and catches up.
                 Err(broadcast::error::RecvError::Lagged(_)) | Err(broadcast::error::RecvError::Closed) => return,
+            },
+            p = peers_bus.recv() => match p {
+                Ok(peers) => {
+                    if !send(&mut sink, &ServerMsg::Peers { peers: peers.as_ref().clone() }).await {
+                        return;
+                    }
+                }
+                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                Err(broadcast::error::RecvError::Closed) => return,
             }
         }
     }

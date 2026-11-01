@@ -50,6 +50,7 @@ final class SpectrumFeed {
 
 /// Slow drifting color blobs over the theme's base color. Pulses gently with
 /// the music when "React to music" is on.
+// parity: animated-background
 struct ThemeBackground: View {
     @EnvironmentObject var c: AppController
     @EnvironmentObject var theme: ThemeStore

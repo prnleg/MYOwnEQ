@@ -3,6 +3,8 @@ import SwiftUI
 /// System volume of the current output + per-device boost (up to +12 dB).
 /// The boost always runs through the lookahead limiter, so it gets louder
 /// but never clips.
+// parity: volume
+// parity: boost
 struct VolumeCard: View {
     @EnvironmentObject var c: AppController
     @EnvironmentObject var theme: ThemeStore
