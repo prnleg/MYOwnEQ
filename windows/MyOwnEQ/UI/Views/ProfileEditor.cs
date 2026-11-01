@@ -58,6 +58,10 @@ public sealed class ProfileEditor : ScrollViewer
 
     public void Rebuild()
     {
+        // The host slots are reused: detach them from the previous layout first
+        // (a WPF element can have only one parent).
+        if (Content is Panel old) old.Children.Clear();
+        Content = null;
         var t = Ui.T;
         var col = new StackPanel { Margin = new Thickness(24, 20, 24, 28) };
 

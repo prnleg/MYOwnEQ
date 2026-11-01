@@ -435,13 +435,16 @@ public sealed class PreferencesPage : Page
         }) { Height = 74 };
         var name = new TextBlock { Text = th.Name, FontSize = 13, FontWeight = FontWeights.SemiBold, Foreground = th.InkBrush(), FontFamily = Ui.Font };
         var author = new TextBlock { Text = th.Author ?? "", FontSize = 10.5, Foreground = th.InkBrush(0.55), FontFamily = Ui.Font };
-        var foot = new Border { Background = Theme.Frozen(th.PanelColor), Padding = new Thickness(10, 7, 10, 8), Child = new StackPanel { Children = { name, author } } };
+        // An element can have only one parent: build the label stack once.
+        var labels = new StackPanel { Children = { name, author } };
+        var footContent = new Grid { Children = { labels } };
         if (selected)
         {
             var check = Ui.Glyph(Ui.GCheck, 14, Theme.Frozen(th.AccentColor));
             check.HorizontalAlignment = HorizontalAlignment.Right;
-            foot.Child = new Grid { Children = { new StackPanel { Children = { name, author } }, check } };
+            footContent.Children.Add(check);
         }
+        var foot = new Border { Background = Theme.Frozen(th.PanelColor), Padding = new Thickness(10, 7, 10, 8), Child = footContent };
         var card = new Border
         {
             Width = 180, Margin = new Thickness(0, 0, 12, 12), CornerRadius = new CornerRadius(12), ClipToBounds = true, Cursor = Cursors.Hand,

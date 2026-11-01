@@ -78,6 +78,9 @@ public sealed class MainWindow : Window
 
     private void Build()
     {
+        // _sidebarHost / _detail are reused across rebuilds: detach them first
+        // (a WPF element can have only one parent).
+        if (_sidebarHost.Parent is Border oldSide) oldSide.Child = null;
         _root.Children.Clear();
         Background = Theme.Frozen(Ui.T.BaseColor);
         var bg = new ThemeBackground(_c);
