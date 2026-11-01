@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using System.Threading;
 using System;
 using System.IO;
@@ -144,6 +145,62 @@ using (var core = new CoreBridge(dir, "win-test"))
 
     Check(CoreBridge.MachineId().Length > 4, "machine id");
 }
+// ---- MyOwnEQ engine plugin, loaded the way Equalizer APO loads it (VST 2.4 entry point).
+unsafe
+{
+    var engDir = Path.Combine(Path.GetTempPath(), "meq-engine-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(engDir);
+    // The plugin is native: on macOS/Linux .NET's SetEnvironmentVariable doesn't reach the
+    // native environment, so also call libc setenv (on Windows .NET already does).
+    Environment.SetEnvironmentVariable("MYOWNEQ_ENGINE_DIR", engDir);
+    if (!OperatingSystem.IsWindows())
+    {
+        var libc = System.Runtime.InteropServices.NativeLibrary.Load(OperatingSystem.IsMacOS() ? "/usr/lib/libSystem.B.dylib" : "libc.so.6");
+        var setenv = (delegate* unmanaged[Cdecl]<byte*, byte*, int, int>)System.Runtime.InteropServices.NativeLibrary.GetExport(libc, "setenv");
+        var k = System.Text.Encoding.UTF8.GetBytes("MYOWNEQ_ENGINE_DIR\0");
+        var v = System.Text.Encoding.UTF8.GetBytes(engDir + "\0");
+        fixed (byte* kp = k, vp = v) setenv(kp, vp, 1);
+    }
+    string libName = OperatingSystem.IsWindows() ? "myowneq_engine.dll" : OperatingSystem.IsMacOS() ? "libmyowneq_engine.dylib" : "libmyowneq_engine.so";
+    var lib = System.Runtime.InteropServices.NativeLibrary.Load(Path.Combine(AppContext.BaseDirectory, libName));
+    var main = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr>)System.Runtime.InteropServices.NativeLibrary.GetExport(lib, "VSTPluginMain");
+    IntPtr eff = main(IntPtr.Zero);
+    Check(eff != IntPtr.Zero && Marshal.ReadInt32(eff) == 0x56737450, "engine: VSTPluginMain returns an AEffect ('VstP')");
+    var dispatcher = (delegate* unmanaged[Cdecl]<IntPtr, int, int, IntPtr, IntPtr, float, IntPtr>)Marshal.ReadIntPtr(eff, 8);
+    var processReplacing = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, int, void>)Marshal.ReadIntPtr(eff, 120);
+    Check(Marshal.ReadInt32(eff, 48) == 2 && Marshal.ReadInt32(eff, 52) == 2, "engine: stereo in/out");
+    dispatcher(eff, 10, 0, IntPtr.Zero, IntPtr.Zero, 48000f); // sample rate
+    dispatcher(eff, 11, 0, (IntPtr)512, IntPtr.Zero, 0f);    // block size
+    var id = System.Text.Encoding.UTF8.GetBytes("{interop}");
+    fixed (byte* idp = id) dispatcher(eff, 24, 0, (IntPtr)id.Length, (IntPtr)idp, 0f); // chunk = output id
+
+    float Run(float amp)
+    {
+        int n = 2048;
+        var l = new float[n]; var r = new float[n]; var ol = new float[n]; var or = new float[n];
+        for (int i = 0; i < n; i++) l[i] = r[i] = amp * MathF.Sin(i * 0.07f);
+        fixed (float* lp = l, rp = r, olp = ol, orp = or)
+        {
+            var ins = stackalloc IntPtr[2] { (IntPtr)lp, (IntPtr)rp };
+            var outs = stackalloc IntPtr[2] { (IntPtr)olp, (IntPtr)orp };
+            processReplacing(eff, (IntPtr)ins, (IntPtr)outs, n);
+        }
+        return ol.Skip(1024).Max(MathF.Abs);
+    }
+    Check(MathF.Abs(Run(0.5f) - 0.5f) < 0.01f, "engine: passthrough before parameters arrive");
+    File.WriteAllText(Path.Combine(engDir, "engine.json"), "{\"schema\":1,\"devices\":{\"{interop}\":{\"bands\":[],\"preamp_db\":-6.0}}}");
+    float got = 0;
+    for (int i = 0; i < 60 && MathF.Abs(got - 0.25f) > 0.02f; i++) { Thread.Sleep(50); got = Run(0.5f); }
+    Check(MathF.Abs(got - 0.25f) < 0.02f, $"engine: parameters from engine.json applied (-6 dB → {got:0.000})");
+    File.WriteAllText(Path.Combine(engDir, "engine.json"), "{\"schema\":1,\"devices\":{\"{interop}\":{\"bands\":[],\"preamp_db\":12.0}}}");
+    float peak = 0;
+    for (int i = 0; i < 60 && peak < 0.95f; i++) { Thread.Sleep(50); peak = Run(0.9f); }
+    Check(peak > 0.95f && peak <= 0.9886f, $"engine: +12 dB boost limited below 0 dBFS ({peak:0.0000})");
+    Check(dispatcher(eff, 1, 0, IntPtr.Zero, IntPtr.Zero, 0f) == (IntPtr)1, "engine: close");
+    Environment.SetEnvironmentVariable("MYOWNEQ_ENGINE_DIR", null);
+    try { Directory.Delete(engDir, true); } catch { }
+}
+
 Directory.Delete(dir, true);
 Console.WriteLine(failures == 0 ? "ALL PASSED" : $"{failures} FAILED");
 return failures == 0 ? 0 : 1;

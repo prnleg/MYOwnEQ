@@ -85,7 +85,8 @@ jobs:
         shell: pwsh
         run: |
           $v = $env:GITHUB_REF_NAME.TrimStart('v')
-          cargo build --release -p myowneq-ffi
+          cargo build --release -p myowneq-ffi -p myowneq-engine
+          if (!(Test-Path target/release/myowneq_engine.dll)) { throw "myowneq_engine.dll missing" }
           dotnet publish windows/MyOwnEQ/MyOwnEQ.csproj -c Release -r win-x64 --self-contained true -p:Version=$v -o windows/publish
           if (!(Test-Path windows/publish/myowneq_ffi.dll)) { throw "myowneq_ffi.dll missing" }
 

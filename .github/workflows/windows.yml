@@ -19,8 +19,8 @@ jobs:
 
       - name: Rust core (DLL)
         run: |
-          cargo build -p myowneq-ffi
-          cargo build --release -p myowneq-ffi
+          cargo build -p myowneq-ffi -p myowneq-engine
+          cargo build --release -p myowneq-ffi -p myowneq-engine
 
       - name: Interop tests (C# models vs real Rust core)
         run: dotnet run --project windows/InteropTests -c Release
@@ -30,7 +30,9 @@ jobs:
 
       - name: Check DLL is next to the exe
         shell: pwsh
-        run: if (!(Test-Path publish/myowneq_ffi.dll)) { throw "myowneq_ffi.dll missing from publish output" }
+        run: |
+          if (!(Test-Path publish/myowneq_ffi.dll)) { throw "myowneq_ffi.dll missing from publish output" }
+          if (!(Test-Path publish/myowneq_engine.dll)) { throw "myowneq_engine.dll missing from publish output" }
 
       - name: Self-test (the real app starts, opens its windows, exits cleanly)
         shell: pwsh

@@ -179,10 +179,80 @@ public sealed class AppController : IDisposable
     private void WriteApo()
     {
         if (Apo.Status != ApoStatus.Ready) return;
-        var text = Core.Command("apo_config")["text"]?.GetValue<string>();
+        string? text = null;
+        if (EngineMode)
+        {
+            // Engine: parameters go to engine.json (no APO reload); APO's include file only
+            // changes when outputs or the plugin version change.
+            _engineDll ??= Engine.Install(AppVersion);
+            if (_engineDll is null)
+            {
+                SetEngineMode(false);
+                Notify(UI.Loc.L("The MyOwnEQ engine couldn't start (%@). Using Equalizer APO's filters.", Engine.LastError ?? "?"), error: true);
+            }
+            else
+            {
+                Engine.WriteParams(Core.Command("engine_config")["text"]?.GetValue<string>() ?? "");
+                text = Core.Command("apo_config", new { engine_dll = _engineDll })["text"]?.GetValue<string>();
+            }
+        }
+        text ??= Core.Command("apo_config")["text"]?.GetValue<string>();
         if (text is not null && !Apo.Write(text) && Apo.LastError is { } err)
         {
             Notify("Equalizer APO: " + err, error: true);
+        }
+    }
+
+    // ---------------------------------------------------------------- MyOwnEQ engine (our DSP inside APO)
+
+    public EngineHost Engine { get; } = new();
+    /// <summary>Our DSP runs inside Equalizer APO (boost + limiter). Opt-in for now.</summary>
+    public bool EngineMode { get; private set; }
+    /// <summary>Persist the choice (set by the UI layer).</summary>
+    public Action<bool>? EngineModeChanged { get; set; }
+    private string? _engineDll;
+    private DispatcherTimer? _engineWatch;
+    private int _engineSilentTicks;
+    private EngineHost.State _lastEngineState;
+
+    // parity: engine
+    public void SetEngineMode(bool on)
+    {
+        if (EngineMode == on) return;
+        EngineMode = on;
+        _engineDll = null;
+        _engineSilentTicks = 0;
+        EngineModeChanged?.Invoke(on);
+        if (on)
+        {
+            _engineWatch ??= new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            _engineWatch.Tick -= EngineTick;
+            _engineWatch.Tick += EngineTick;
+            _engineWatch.Start();
+        }
+        else _engineWatch?.Stop();
+        ScheduleApo();
+        Changed?.Invoke();
+    }
+
+    /// <summary>Engine state for the output in use (Off when engine mode is off).</summary>
+    public EngineHost.State EngineState =>
+        !EngineMode || Current is null ? EngineHost.State.Off : EngineHost.Status(Current.Id);
+
+    /// <summary>Watchdog: if audio is playing but the engine isn't processing it for
+    /// ~10 s, go back to Equalizer APO's own filters so the user never loses the EQ.</summary>
+    private void EngineTick(object? sender, EventArgs e)
+    {
+        var st = EngineState;
+        if (st != _lastEngineState) { _lastEngineState = st; Changed?.Invoke(); }
+        bool audio = Spectrum() is { } s && s.Max() > -70;
+        bool apoOnOutput = ApoOnCurrent != ApoEndpoint.NotEnabled;
+        if (audio && apoOnOutput && st != EngineHost.State.Processing) _engineSilentTicks++;
+        else _engineSilentTicks = 0;
+        if (_engineSilentTicks >= 5)
+        {
+            SetEngineMode(false);
+            Notify(UI.Loc.L("The MyOwnEQ engine isn't processing audio on this output. Switched back to Equalizer APO's filters."), error: true);
         }
     }
 

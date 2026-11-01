@@ -794,10 +794,21 @@ dependencies = [
 ]
 
 [[package]]
-name = "myowneq-ffi"
+name = "myowneq-engine"
 version = "0.1.0"
 dependencies = [
  "myowneq-dsp",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "myowneq-ffi"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "myowneq-dsp",
+ "myowneq-engine",
  "myowneq-model",
  "myowneq-server",
  "myowneq-sync",

@@ -113,6 +113,8 @@ public sealed class UiSettings
     public bool ShowPresets { get; set; } = true;
     public bool EditorPro { get; set; }
     public bool CustomLogoTemplate { get; set; }
+    /// <summary>Windows: run MyOwnEQ's DSP inside Equalizer APO (experimental).</summary>
+    public bool Engine { get; set; }
 
     private static string Path => System.IO.Path.Combine(CoreBridge.DataDir, "ui.json");
     private static readonly JsonSerializerOptions Opts = new()

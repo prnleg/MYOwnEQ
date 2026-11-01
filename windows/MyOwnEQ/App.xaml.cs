@@ -78,6 +78,8 @@ public partial class App : Application
     {
         _controller = new AppController(Dispatcher);
         Ui.Init(_controller.Core); // themes, language, UI prefs (loaded by the core)
+        _controller.EngineModeChanged = on => { if (Ui.Store.Settings.Engine != on) Ui.Store.Update(s => s.Engine = on); };
+        _controller.SetEngineMode(Ui.Store.Settings.Engine);
 
         // A verified update downloaded last session: this launch is the "restart".
         if (_controller.ShouldInstallOnStart && _controller.ApplyUpdate())

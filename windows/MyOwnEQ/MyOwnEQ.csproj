@@ -39,4 +39,8 @@
   <ItemGroup Condition="Exists('../../target/release/myowneq_ffi.dll')">
     <None Include="../../target/release/myowneq_ffi.dll" Link="myowneq_ffi.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <!-- MyOwnEQ engine: our DSP as a plugin Equalizer APO loads (copied to ProgramData at runtime). -->
+  <ItemGroup Condition="Exists('../../target/release/myowneq_engine.dll')">
+    <None Include="../../target/release/myowneq_engine.dll" Link="myowneq_engine.dll" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
 </Project>

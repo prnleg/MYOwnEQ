@@ -31,7 +31,7 @@ em só um dos apps sem justificativa. Veja `CONTRIBUTING.md`.
 | Importar AutoEQ e Equalizer APO/Peace, exportar APO | `imports` | ✅ | ✅ |  |
 | Painel da barra de menus / bandeja | `tray-panel` | ✅ | ✅ |  |
 | Volume do sistema | `volume` | ✅ | ✅ |  |
-| Boost até +12 dB com limitador | `boost` | ✅ | ⛔ | Equalizer APO não tem limitador; no Windows aparece desligado com aviso até existir motor próprio. |
+| Boost até +12 dB com limitador | `boost` | ✅ | ✅ | Windows: precisa do motor MyOwnEQ (Preferências › Motor de áudio do Windows); só com os filtros do Equalizer APO não há limitador. |
 | Dispositivos: nome, padrão, favoritos, vínculo entre máquinas, regras por app | `devices-rules` | ✅ | ✅ | Windows tem o campo .exe nas regras. |
 | Vincular/desvincular fone entre máquinas com confirmação | `link-feedback` | ✅ | ✅ |  |
 | Sync: servidor, hospedar na rede local, procurar na rede | `sync` | ✅ | ✅ |  |
@@ -41,6 +41,7 @@ em só um dos apps sem justificativa. Veja `CONTRIBUTING.md`.
 | Iniciar com o sistema | `start-with-system` | ✅ | ✅ | Mac: Itens de Login (SMAppService). Windows: registro Run. |
 | Barra de título integrada ao fundo | `blended-title-bar` | — | ✅ | O Mac usa a barra nativa unificada da janela. |
 | Configuração do Equalizer APO | `apo-setup` | — | ✅ |  |
+| Motor MyOwnEQ: o DSP do app rodando dentro do Equalizer APO (limitador, boost, prévia instantânea) | `engine` | — | ✅ | No Mac o DSP já roda no próprio app (Core Audio). Experimental no Windows. |
 | Aviso de permissão de captura de áudio | `audio-permission` | ✅ | — |  |
 | Importar presets do eqMac | `eqmac-import` | ✅ | — |  |
 | Self-test com prints de cada tela no CI | `selftest` | ⛔ | ✅ | Mac: só build + --check-library no CI por enquanto. |

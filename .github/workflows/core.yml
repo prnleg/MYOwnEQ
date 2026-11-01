@@ -35,7 +35,7 @@ jobs:
           dotnet-version: "10.0.x"
       - name: Interop tests (C# models vs real Rust core)
         run: |
-          cargo build -p myowneq-ffi
+          cargo build -p myowneq-ffi -p myowneq-engine
           dotnet run --project windows/InteropTests
 
   mac-app:

@@ -18,6 +18,7 @@
 │ sync/     HLC + last-writer-wins, réplica com outbox, cliente WebSocket, mDNS,      │
 │           presença (quem está conectado)                                            │
 │ update/   atualização assinada (ed25519), download e instalação                    │
+│ engine/   o DSP como plugin (ABI VST 2.4) que o Equalizer APO carrega no Windows   │
 └──────────────────────────────────────────────────────────────────────────────────────┘
 server/   servidor de sync (axum + SQLite): Docker, nuvem, ou embutido no app (LAN)
 themes/   lang/   arquivos compartilhados por todos os apps
@@ -49,8 +50,34 @@ garante que eles se comportem igual.
    grava em disco, registra a mudança no sync e responde com o estado completo.
 3. Parâmetros de DSP vão para o áudio por um canal sem lock (`rtrb`).
    - Mac: o tap de áudio chama `meq_audio_process` no callback de tempo real.
-   - Windows: o core gera o arquivo de configuração do Equalizer APO; o loopback só
-     alimenta o espectro (`meq_audio_analyze`).
+   - Windows, modo clássico: o core gera filtros do Equalizer APO (`apo_config`); o
+     loopback só alimenta o espectro (`meq_audio_analyze`).
+   - Windows, motor MyOwnEQ (experimental): o Equalizer APO só hospeda o nosso plugin
+     (`core/engine`), que roda o mesmo `Processor` do Mac. Veja abaixo.
+
+## Motor MyOwnEQ no Windows
+
+```
+app ──escreve──► %ProgramData%\MyOwnEQ\engine.json        (parâmetros por saída, boost incluso)
+    ──escreve──► <config do APO>\MyOwnEQ.txt:
+                   Device: {guid}
+                   VSTPlugin: Library "...\engine\MyOwnEQEngine-<versão>.dll" ChunkData "<id da saída>"
+audiodg (Equalizer APO) ── carrega o plugin por saída ──► o plugin lê engine.json e
+    aplica pelo canal sem lock (sem recarregar o APO: prévia instantânea)
+plugin ──escreve──► engine-status-<saída>.json (batimento: carregado / processando)
+```
+
+- Sem admin: a pasta em ProgramData é criada pelo app; o serviço de áudio só lê.
+- O app vigia o batimento: se há áudio tocando e o motor não processa por ~10 s, volta
+  sozinho para os filtros do Equalizer APO.
+- O formato do `engine.json` está em `core/engine/src/schema.rs` (o core escreve, o
+  plugin lê — mesmo código). O plugin limita valores absurdos e nunca aplica ganho
+  positivo sem o limitador.
+- Segurança: o plugin roda dentro do serviço de áudio a partir de uma pasta que o
+  usuário pode escrever — o mesmo modelo de confiança da pasta de config do Equalizer
+  APO (cujas linhas `VSTPlugin:` já podem apontar para qualquer DLL).
+- Testes: `cargo test -p myowneq-engine` (layout do `AEffect`, fluxo completo pelo
+  `VSTPluginMain`) e o InteropTests carrega a biblioteca de verdade como o APO faz.
 
 ## Threads
 
@@ -71,8 +98,9 @@ garante que eles se comportem igual.
 
 ## Decisões conhecidas
 
-- **Windows usa Equalizer APO** por enquanto: sem limitador, então o boost fica
-  desligado lá. Um motor próprio (APO em Rust) resolveria.
+- **Windows usa o Equalizer APO como hospedeiro.** Com os filtros dele (modo clássico)
+  não há limitador nem boost; com o motor MyOwnEQ, o nosso DSP roda dentro dele e o
+  boost funciona. Um APO 100% nosso exigiria admin, por isso ficou de fora.
 - **Vidro no Windows** é aproximado: o WPF não desfoca o que está atrás de um elemento.
 - **Interfaces nativas** (SwiftUI, WPF, GTK): mais trabalho que uma interface única, mas
   é o que dá cara de app do sistema. A paridade é garantida por regra + core comum.

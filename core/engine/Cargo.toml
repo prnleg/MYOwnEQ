@@ -1,0 +1,20 @@
+[package]
+name = "myowneq-engine"
+description = "MyOwnEQ DSP as a plugin hosted by Equalizer APO on Windows (VST 2.4 ABI)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[features]
+# The VST entry point. Off when the app core only needs the shared file schema,
+# so myowneq_ffi.dll doesn't export a plugin entry point.
+default = ["plugin"]
+plugin = []
+
+[dependencies]
+myowneq-dsp = { path = "../dsp" }
+serde.workspace = true
+serde_json.workspace = true

@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Push-Location $root
 try {
-    cargo build --release -p myowneq-ffi
+    cargo build --release -p myowneq-ffi -p myowneq-engine
     dotnet publish windows/MyOwnEQ/MyOwnEQ.csproj -c Release -r win-x64 --self-contained true -o windows/publish
     Write-Host "Done: windows\publish\MyOwnEQ.exe"
     $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"

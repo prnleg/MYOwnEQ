@@ -83,11 +83,20 @@ public sealed class VolumeCard : StackPanel
         }
         else Children.Add(Ui.Secondary(L("This output has no software volume. Use the device's own controls."), 12));
 
+        // parity: boost
         double boost = c.State?.CurrentGroup?.BoostDb ?? 0;
-        var bolt = Ui.Glyph(Ui.GBolt, 14, t.InkBrush(0.4));
+        bool can = c.EngineMode; // our engine has the limiter; Equalizer APO's filters don't
+        var bolt = Ui.Glyph(Ui.GBolt, 14, can && boost > 0 ? t.CurveBrush() : t.InkBrush(0.4));
         bolt.Width = 24;
-        var bs = new GlowSlider(0, 12, boost) { Bipolar = false, Step = 0.5, IsEnabled = false, Opacity = 0.4 };
-        var bv = Ui.Text(boost == 0 ? L("off") : $"+{boost:0.0} dB", 12, opacity: 0.5);
+        var bs = new GlowSlider(0, 12, boost) { Bipolar = false, Step = 0.5, IsEnabled = can, Opacity = can ? 1 : 0.4 };
+        var bv = Ui.Text(boost == 0 ? L("off") : $"+{boost:0.0} dB", 12, opacity: can ? 1 : 0.5);
+        DateTime lastSent = DateTime.MinValue;
+        bs.ValueChanged += v =>
+        {
+            bv.Text = v == 0 ? L("off") : $"+{v:0.0} dB";
+            if ((DateTime.UtcNow - lastSent).TotalMilliseconds > 100) { lastSent = DateTime.UtcNow; c.SetBoost(v); }
+        };
+        bs.Editing += on => { if (!on) c.SetBoost(bs.Value); };
         bv.Width = 52;
         bv.TextAlignment = TextAlignment.Right;
         var brow = new DockPanel { Margin = new Thickness(0, 8, 0, 0), ToolTip = L("Boost") };
@@ -97,8 +106,9 @@ public sealed class VolumeCard : StackPanel
         brow.Children.Add(bv);
         brow.Children.Add(bs);
         Children.Add(brow);
-        var note = Ui.Secondary(compact ? L("Boost needs a limiter, which Equalizer APO doesn't have.")
-                                        : L("Boost needs a limiter so it never clips. Equalizer APO doesn't have one, so on Windows it stays off (it still works on the Mac)."), 11);
+        var note = Ui.Secondary(c.EngineMode
+                ? (boost > 0 ? L("Boost on · limiter keeps it from clipping") : L("Boost uses the MyOwnEQ engine's limiter, so it never clips."))
+                : L("Boost needs the MyOwnEQ engine (Preferences › Windows audio engine): Equalizer APO alone has no limiter."), 11);
         note.Margin = new Thickness(24, 4, 0, 0);
         Children.Add(note);
     }
@@ -256,6 +266,17 @@ public sealed class DeviceSettings : Page
                  on == ApoEndpoint.Enabled ? L("Active on “%@”", c.Current?.Name ?? "")
                  : on == ApoEndpoint.NotEnabled ? L("Not enabled on “%@”", c.Current?.Name ?? "")
                  : L("Couldn't check this output")));
+        if (c.EngineMode)
+        {
+            var es = c.EngineState;
+            Ui.Add(col, Line(es == EngineHost.State.Processing ? true : es == EngineHost.State.Waiting ? false : null,
+                es switch
+                {
+                    EngineHost.State.Processing => L("MyOwnEQ engine processing audio"),
+                    EngineHost.State.Loaded => L("MyOwnEQ engine loaded, waiting for audio"),
+                    _ => L("MyOwnEQ engine not loaded yet (play something; Equalizer APO loads it with the audio)"),
+                }), 6, false);
+        }
         Ui.Add(col, Ui.HStack(8, Ui.Button(L("Device selector…"), apo.OpenConfigurator), Ui.Button(L("Show generated config"), apo.OpenOurConfig),
                                  Ui.Button(L("Check again"), c.ApoRedetect)), 6, false);
         return col;
@@ -493,6 +514,10 @@ public sealed class PreferencesPage : Page
 
         // parity: start-with-system
         Card(L("System"), Ui.GSettings, ToggleSwitch.Row(L("Start MyOwnEQ with Windows"), Startup.Enabled, on => Startup.Enabled = on));
+
+        Card(L("Windows audio engine"), Ui.GBolt, Ui.VStack(6,
+            ToggleSwitch.Row(L("Use the MyOwnEQ engine (experimental)"), c.EngineMode, on => c.SetEngineMode(on)),
+            Ui.Secondary(L("Runs MyOwnEQ's own DSP inside Equalizer APO: same sound as the Mac, a real limiter (so boost works) and instant previews. If it doesn't process audio, the app switches back by itself."), 11.5)));
     }
 
     private static UIElement Link(string text, string url)
