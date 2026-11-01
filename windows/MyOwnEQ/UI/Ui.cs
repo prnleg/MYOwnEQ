@@ -178,11 +178,12 @@ public static class Ui
             "<Border x:Name='b' Background='{TemplateBinding Background}' BorderBrush='{TemplateBinding BorderBrush}' " +
             "BorderThickness='{TemplateBinding BorderThickness}' CornerRadius='16' Padding='{TemplateBinding Padding}' RenderTransformOrigin='0.5,0.5' " +
             "xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>" +
-            "<Border.RenderTransform><ScaleTransform x:Name='s'/></Border.RenderTransform>" +
             "<ContentPresenter HorizontalAlignment='Center' VerticalAlignment='Center'/></Border>" +
             "<ControlTemplate.Triggers>" +
             "<Trigger Property='IsMouseOver' Value='True'><Setter TargetName='b' Property='Opacity' Value='0.88'/></Trigger>" +
-            "<Trigger Property='IsPressed' Value='True'><Setter TargetName='s' Property='ScaleX' Value='0.96'/><Setter TargetName='s' Property='ScaleY' Value='0.96'/></Trigger>" +
+            // Setters can only target named elements (the Border), not a named transform inside it.
+            "<Trigger Property='IsPressed' Value='True'><Setter TargetName='b' Property='RenderTransform'>" +
+            "<Setter.Value><ScaleTransform ScaleX='0.96' ScaleY='0.96'/></Setter.Value></Setter></Trigger>" +
             "<Trigger Property='IsEnabled' Value='False'><Setter TargetName='b' Property='Opacity' Value='0.4'/></Trigger>" +
             "</ControlTemplate.Triggers></ControlTemplate>");
         var t = T;
