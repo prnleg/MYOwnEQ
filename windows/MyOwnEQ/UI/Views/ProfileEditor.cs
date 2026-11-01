@@ -30,7 +30,9 @@ public sealed class ProfileEditor : ScrollViewer
     private CurveView? _curve;
     private TextBox? _nameBox;
     private UIElement? _pencil, _presetNote;
-    private readonly ContentControl _unsavedHost = new(), _actionsHost = new(), _tagsHost = new(), _panelHost = new();
+    // Recreated by every Rebuild(): a WPF element can have only one parent, and these sit
+    // at different depths of the layout, so reusing them across rebuilds isn't safe.
+    private ContentControl _unsavedHost = new(), _actionsHost = new(), _tagsHost = new(), _panelHost = new();
 
     public ProfileEditor(AppController c, Profile original, Action<string> onFork)
     {
@@ -58,10 +60,11 @@ public sealed class ProfileEditor : ScrollViewer
 
     public void Rebuild()
     {
-        // The host slots are reused: detach them from the previous layout first
-        // (a WPF element can have only one parent).
-        if (Content is Panel old) old.Children.Clear();
         Content = null;
+        _unsavedHost = new ContentControl();
+        _actionsHost = new ContentControl();
+        _tagsHost = new ContentControl();
+        _panelHost = new ContentControl();
         var t = Ui.T;
         var col = new StackPanel { Margin = new Thickness(24, 20, 24, 28) };
 
