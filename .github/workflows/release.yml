@@ -46,14 +46,14 @@ jobs:
         run: |
           XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
           if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; fi
-          xcodebuild -version && swift --version
+          echo "::notice::$(xcodebuild -version | tr '\n' ' ') / $(swift --version 2>&1 | head -1)"
 
       - name: Build universal app
         run: |
           set -o pipefail
           VERSION="${GITHUB_REF_NAME#v}" mac/scripts/build-app.sh 2>&1 | tee build.log || {
-            grep -E 'error:' build.log | head -20 | sed 's/^/::error::/'
-            tail -5 build.log | sed 's/^/::error::/'
+            echo "::error::$( (grep -E 'error:' build.log || true) | head -6 | tr '\n' '|')"
+            echo "::error::TAIL $(tail -12 build.log | tr '\n' '|')"
             exit 1
           }
 
