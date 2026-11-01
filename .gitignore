@@ -9,3 +9,6 @@ bin/
 obj/
 *.user
 .vs/
+/mac/build/
+/mac/.build/
+.swiftpm/

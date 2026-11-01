@@ -8,3 +8,4 @@ license.workspace = true
 [dependencies]
 serde.workspace = true
 rtrb.workspace = true
+realfft.workspace = true

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core/dsp", "core/model"]
+members = ["core/dsp", "core/model", "core/ffi"]
 
 [workspace.package]
 version = "0.1.0"
@@ -15,6 +15,7 @@ uuid = { version = "1", features = ["v4", "serde"] }
 thiserror = "2"
 rtrb = "0.3"
 plist = "1"
+realfft = "3"
 
 [profile.release]
 lto = true

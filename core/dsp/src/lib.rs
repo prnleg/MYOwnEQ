@@ -6,6 +6,7 @@ pub mod loudness;
 pub mod params;
 pub mod processor;
 pub mod response;
+pub mod spectrum;
 
 pub use biquad::{Band, Coeffs, FilterKind};
 pub use params::{param_channel, EqParams, ParamReceiver, ParamSender, MAX_BANDS};

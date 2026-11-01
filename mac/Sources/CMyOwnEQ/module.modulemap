@@ -1,0 +1,5 @@
+module CMyOwnEQ [system] {
+    header "shim.h"
+    link "myowneq_ffi"
+    export *
+}
