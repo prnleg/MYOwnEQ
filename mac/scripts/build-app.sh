@@ -5,6 +5,9 @@
 # Env: SIGN_IDENTITY (default: first "Apple Development" identity, else ad-hoc "-")
 #      VERSION (default: latest git tag without the v, else 0.1.0)
 set -euo pipefail
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+  trap 'echo "::error::build-app.sh line $LINENO failed: $BASH_COMMAND"' ERR
+fi
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MAC="$ROOT/mac"
