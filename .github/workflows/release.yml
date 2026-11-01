@@ -89,6 +89,16 @@ jobs:
           dotnet publish windows/MyOwnEQ/MyOwnEQ.csproj -c Release -r win-x64 --self-contained true -p:Version=$v -o windows/publish
           if (!(Test-Path windows/publish/myowneq_ffi.dll)) { throw "myowneq_ffi.dll missing" }
 
+      - name: Self-test (the real app starts, opens its windows, exits cleanly)
+        shell: pwsh
+        run: |
+          $env:MYOWNEQ_DATA_DIR = Join-Path $env:RUNNER_TEMP "meq-selftest"
+          $p = Start-Process -FilePath "windows/publish/MyOwnEQ.exe" -ArgumentList "--selftest" -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "self-test hung" }
+          $log = Join-Path $env:MYOWNEQ_DATA_DIR "logs/myowneq.log"
+          if (Test-Path $log) { Get-Content $log | ForEach-Object { "::error::$_" } }
+          if ($p.ExitCode -ne 0) { throw "self-test failed with exit code $($p.ExitCode)" }
+
       - name: Installer
         shell: pwsh
         run: |

@@ -32,6 +32,16 @@ jobs:
         shell: pwsh
         run: if (!(Test-Path publish/myowneq_ffi.dll)) { throw "myowneq_ffi.dll missing from publish output" }
 
+      - name: Self-test (the real app starts, opens its windows, exits cleanly)
+        shell: pwsh
+        run: |
+          $env:MYOWNEQ_DATA_DIR = Join-Path $env:RUNNER_TEMP "meq-selftest"
+          $p = Start-Process -FilePath "publish/MyOwnEQ.exe" -ArgumentList "--selftest" -PassThru
+          if (-not $p.WaitForExit(60000)) { $p.Kill(); throw "self-test hung" }
+          $log = Join-Path $env:MYOWNEQ_DATA_DIR "logs/myowneq.log"
+          if (Test-Path $log) { Get-Content $log | ForEach-Object { "::error::$_" } }
+          if ($p.ExitCode -ne 0) { throw "self-test failed with exit code $($p.ExitCode)" }
+
       - uses: actions/upload-artifact@v4
         with:
           name: MyOwnEQ-windows-x64

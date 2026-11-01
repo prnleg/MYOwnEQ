@@ -21,20 +21,29 @@ public partial class App : Application
     private TrayIcon? _tray;
     private QuickPanel? _panel;
     private EditorWindow? _editor;
+    /// <summary>`--selftest`: start everything, open the windows, exit 0/1. Used by CI.</summary>
+    private bool _selfTest;
 
     public static string LogPath => Path.Combine(CoreBridge.DataDir, "logs", "myowneq.log");
 
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        _selfTest = e.Args.Contains("--selftest");
         DispatcherUnhandledException += (_, ev) =>
         {
             Log("UI thread", ev.Exception);
-            ShowError(ev.Exception);
             ev.Handled = true; // keep the EQ running; the error is logged
+            if (_selfTest) Shutdown(1); else ShowError(ev.Exception);
         };
         AppDomain.CurrentDomain.UnhandledException += (_, ev) => Log("background", ev.ExceptionObject as Exception);
         TaskScheduler.UnobservedTaskException += (_, ev) => { Log("task", ev.Exception); ev.SetObserved(); };
+
+        if (_selfTest)
+        {
+            RunSelfTest();
+            return;
+        }
 
         _single = new Mutex(true, MutexName, out bool first);
         if (!first)
@@ -84,6 +93,33 @@ public partial class App : Application
         bool background = args.Contains("--background");
         if (!background) OpenEditor(); // launched by the user: show the window
         _tray.ShowFirstRunHint();
+    }
+
+    private void RunSelfTest()
+    {
+        try
+        {
+            Start(new[] { "--background" });
+            OpenEditor();
+            TogglePanel();
+            // Let layout, timers and the first refresh run, then leave cleanly.
+            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            t.Tick += (_, _) =>
+            {
+                t.Stop();
+                _editor?.Close();
+                _panel?.Hide();
+                _tray?.Dispose();
+                _controller?.Dispose();
+                Shutdown(0);
+            };
+            t.Start();
+        }
+        catch (Exception ex)
+        {
+            Log("selftest", ex);
+            Shutdown(1);
+        }
     }
 
     /// <summary>Wait for a second launch's signal on a background thread.</summary>

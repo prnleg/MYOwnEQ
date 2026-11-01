@@ -44,6 +44,15 @@ public sealed class AppController : IDisposable
     {
         _ui = ui;
         Core = new CoreBridge(CoreBridge.DataDir, CoreBridge.MachineId());
+        // Timers first: Reload() → Apply() → ScheduleApo() uses them.
+        _apoDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
+        _apoDebounce.Tick += (_, _) => { _apoDebounce.Stop(); WriteApo(); };
+        _saveDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
+        _saveDebounce.Tick += (_, _) =>
+        {
+            _saveDebounce.Stop();
+            if (_pendingSave is { } p) { _pendingSave = null; Save(p); }
+        };
         Reload();
 
         Apo.Detect();
@@ -55,14 +64,6 @@ public sealed class AppController : IDisposable
         });
         _apps = new AppWatcher(AppsChanged);
 
-        _apoDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(60) };
-        _apoDebounce.Tick += (_, _) => { _apoDebounce.Stop(); WriteApo(); };
-        _saveDebounce = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(400) };
-        _saveDebounce.Tick += (_, _) =>
-        {
-            _saveDebounce.Stop();
-            if (_pendingSave is { } p) { _pendingSave = null; Save(p); }
-        };
         _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
         _syncTimer.Tick += (_, _) => SyncTick();
         _syncTimer.Start();
@@ -137,6 +138,7 @@ public sealed class AppController : IDisposable
 
     private void ScheduleApo()
     {
+        if (_apoDebounce is null) return; // during construction
         _apoDebounce.Stop();
         _apoDebounce.Start();
     }

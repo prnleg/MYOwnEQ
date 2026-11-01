@@ -68,8 +68,11 @@ public sealed class CoreBridge : IDisposable
         return "win-" + hash.ToString("x");
     }
 
+    /// <summary>%APPDATA%\MyOwnEQ, or MYOWNEQ_DATA_DIR (CI self-test).</summary>
     public static string DataDir =>
-        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MyOwnEQ");
+        Environment.GetEnvironmentVariable("MYOWNEQ_DATA_DIR") is { Length: > 0 } d
+            ? d
+            : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "MyOwnEQ");
 
     public void Dispose()
     {
