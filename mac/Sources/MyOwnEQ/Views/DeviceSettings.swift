@@ -9,11 +9,11 @@ struct DeviceSettings: View {
     var body: some View {
         if let g = c.state?.currentGroup, let s = c.state {
             Form {
-                Section("Device") {
-                    TextField("Name", text: Binding(get: { g.name }, set: { var n = g; n.name = $0; c.updateGroup(n) }))
-                    Toggle("EQ enabled for this device", isOn: Binding(get: { g.enabled }, set: { var n = g; n.enabled = $0; c.updateGroup(n) }))
-                    Picker("Default profile", selection: Binding(get: { g.defaultProfile }, set: { var n = g; n.defaultProfile = $0; c.updateGroup(n) })) {
-                        Text("None (flat)").tag(ID?.none)
+                Section(L("Device")) {
+                    TextField(L("Name"), text: Binding(get: { g.name }, set: { var n = g; n.name = $0; c.updateGroup(n) }))
+                    Toggle(L("EQ enabled for this device"), isOn: Binding(get: { g.enabled }, set: { var n = g; n.enabled = $0; c.updateGroup(n) }))
+                    Picker(L("Default profile"), selection: Binding(get: { g.defaultProfile }, set: { var n = g; n.defaultProfile = $0; c.updateGroup(n) })) {
+                        Text(L("None (flat)")).tag(ID?.none)
                         ForEach(s.library.profiles) { Text($0.name).tag(Optional($0.id)) }
                     }
                 }
@@ -27,7 +27,7 @@ struct DeviceSettings: View {
                                 .font(.caption).foregroundStyle(.secondary)
                             Spacer()
                             if g.members.count > 1 {
-                                Button("Unlink") { c.unlink(m.key) }.controlSize(.small)
+                                Button(L("Unlink")) { c.unlink(m.key) }.controlSize(.small)
                             }
                         }
                     }
@@ -35,20 +35,20 @@ struct DeviceSettings: View {
                         o.id != g.id && !o.members.isEmpty && o.members.allSatisfy { $0.key.machine != s.machine }
                     }
                     if !others.isEmpty {
-                        Menu("Link with a device from another machine…") {
+                        Menu(L("Link with a device from another machine…")) {
                             ForEach(others) { o in
                                 Button("\(o.name) (\(o.members.first?.key.machine ?? ""))") { c.link(o.id) }
                             }
                         }
                     }
                 } header: {
-                    Text("Same headphones on other machines")
+                    Text(L("Same headphones on other machines"))
                 } footer: {
-                    Text("Linked devices share default profile, favorites, rules and the selected profile. Pick a profile here and the other machine switches too.")
+                    Text(L("Linked devices share default profile, favorites, rules and the selected profile. Pick a profile here and the other machine switches too."))
                         .font(.caption).foregroundStyle(.secondary)
                 }
 
-                Section("Favorites (shown in the menu bar while this device is connected)") {
+                Section(L("Favorites (shown in the menu bar while this device is connected)")) {
                     ForEach(s.library.profiles) { p in
                         Toggle(p.name, isOn: Binding(get: { g.favorites.contains(p.id) }, set: { _ in c.toggleFavorite(p.id) }))
                     }
@@ -58,22 +58,22 @@ struct DeviceSettings: View {
                     ForEach(s.library.rules.filter { $0.group == g.id }) { r in
                         RuleRow(rule: r, profiles: s.library.profiles)
                     }
-                    Menu("Add rule for app…") {
+                    Menu(L("Add rule for app…")) {
                         ForEach(apps, id: \.bundleID) { a in
                             Button(a.name) { addRule(a, group: g.id, fallback: s.library.profiles.first?.id) }
                         }
                     }
                 } header: {
-                    Text("App rules")
+                    Text(L("App rules"))
                 } footer: {
-                    Text("When the app runs (or is focused) and this device is the output, its profile takes over. When it quits, the device goes back to its selected/default profile.")
+                    Text(L("When the app runs (or is focused) and this device is the output, its profile takes over. When it quits, the device goes back to its selected/default profile."))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .formStyle(.grouped)
             .onAppear { apps = AppWatcher.pickableApps() }
         } else {
-            ContentUnavailableView("No output device", systemImage: "speaker.slash")
+            ContentUnavailableView(L("No output device"), systemImage: "speaker.slash")
         }
     }
 
@@ -97,8 +97,8 @@ struct RuleRow: View {
             }
             Spacer()
             Picker("", selection: bind(\.trigger)) {
-                Text("while running").tag(Trigger.running)
-                Text("while focused").tag(Trigger.focused)
+                Text(L("while running")).tag(Trigger.running)
+                Text(L("while focused")).tag(Trigger.focused)
             }.labelsHidden().fixedSize()
             Image(systemName: "arrow.right").foregroundStyle(.secondary)
             Picker("", selection: bind(\.profile)) {

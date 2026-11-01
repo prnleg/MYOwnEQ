@@ -167,14 +167,14 @@ final class AppController: ObservableObject {
     func importEqMac() {
         let r = core.command("import_eqmac")
         apply(r)
-        if let n = r["imported"] as? Int { lastMessage = "Imported \(n) eqMac preset\(n == 1 ? "" : "s")" }
+        if let n = r["imported"] as? Int { lastMessage = L("Imported %@ eqMac presets", n) }
     }
 
     func importFile(asCorrection: Bool) {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.plainText, .text]
         panel.allowsMultipleSelection = true
-        panel.message = asCorrection ? "Choose AutoEQ ParametricEQ.txt files" : "Choose Equalizer APO / Peace config files"
+        panel.message = asCorrection ? L("Choose AutoEQ ParametricEQ.txt files") : L("Choose Equalizer APO / Peace config files")
         NSApp.activate(ignoringOtherApps: true)
         guard panel.runModal() == .OK else { return }
         for url in panel.urls {
@@ -183,7 +183,7 @@ final class AppController: ObservableObject {
             if asCorrection, name.hasSuffix(" ParametricEQ") { name = String(name.dropLast(" ParametricEQ".count)) }
             let r = core.command("import_apo", ["text": text, "name": name, "as_correction": asCorrection])
             apply(r)
-            if let w = r["warnings"] as? [String], !w.isEmpty { lastMessage = "\(name): \(w.count) line(s) skipped" }
+            if let w = r["warnings"] as? [String], !w.isEmpty { lastMessage = L("%@: %@ lines skipped", name, w.count) }
         }
     }
 
@@ -297,11 +297,11 @@ final class AppController: ObservableObject {
         guard let s = state else { return "" }
         switch s.resolution.kind {
         case "rule", "rule_override":
-            let app = s.rule(s.resolution.rule)?.app.name ?? "app"
-            return s.resolution.kind == "rule" ? "because \(app) is running" : "manual pick while \(app) runs"
-        case "selected": return "selected"
-        case "default": return "device default"
-        default: return "no profile (flat)"
+            let app = s.rule(s.resolution.rule)?.app.name ?? L("app")
+            return s.resolution.kind == "rule" ? L("because %@ is running", app) : L("manual pick while %@ runs", app)
+        case "selected": return L("selected")
+        case "default": return L("device default")
+        default: return L("no profile (flat)")
         }
     }
 

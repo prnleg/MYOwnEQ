@@ -1,0 +1,17 @@
+{
+  "id": "neon-sunset",
+  "name": "Neon Sunset",
+  "author": "MyOwnEQ",
+  "dark": true,
+  "accent": "#FF2E88",
+  "curve": ["#FF2E88", "#FF7A2E", "#FFD23F"],
+  "spectrum": ["#FF2E88", "#7B2CBF"],
+  "background": {
+    "base": "#0E0B1A",
+    "blobs": ["#FF2E88", "#7B2CBF", "#FF7A2E", "#3A0CA3"],
+    "intensity": 0.45,
+    "speed": 1.0
+  },
+  "panel": "#1A1430",
+  "glow": 0.9
+}

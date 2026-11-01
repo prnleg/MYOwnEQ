@@ -1,0 +1,17 @@
+{
+  "id": "peach-daylight",
+  "name": "Peach Daylight",
+  "author": "MyOwnEQ",
+  "dark": false,
+  "accent": "#E11D74",
+  "curve": ["#E11D74", "#F97316", "#EAB308"],
+  "spectrum": ["#F472B6", "#FDBA74"],
+  "background": {
+    "base": "#FFF5EE",
+    "blobs": ["#FBCFE8", "#FED7AA", "#FDE68A", "#DDD6FE"],
+    "intensity": 0.7,
+    "speed": 0.7
+  },
+  "panel": "#FFFFFF",
+  "glow": 0.45
+}

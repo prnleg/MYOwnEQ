@@ -54,7 +54,7 @@ final class TapEngine {
         tap.muteBehavior = .mutedWhenTapped
         var err = AudioHardwareCreateProcessTap(tap, &tapID)
         guard err == noErr else {
-            throw EngineError(message: "Could not create the system audio tap. Allow MyOwnEQ under System Settings › Privacy & Security › Screen & System Audio Recording.", status: err)
+            throw EngineError(message: L("Could not create the system audio tap. Allow MyOwnEQ under System Settings › Privacy & Security › Screen & System Audio Recording."), status: err)
         }
 
         // 2. Private aggregate: output device (clock source) + our tap as input.
@@ -72,7 +72,7 @@ final class TapEngine {
             ]],
         ]
         err = AudioHardwareCreateAggregateDevice(desc as CFDictionary, &aggregateID)
-        guard err == noErr else { throw EngineError(message: "Could not create aggregate device", status: err) }
+        guard err == noErr else { throw EngineError(message: L("Could not create aggregate device"), status: err) }
 
         sampleRate = CA.nominalSampleRate(aggregateID) ?? CA.nominalSampleRate(device.id) ?? 48_000
         guard let audio = core.makeAudio(sampleRate: sampleRate) else {
@@ -174,7 +174,7 @@ final class TapEngine {
         guard err == noErr, let proc else { throw EngineError(message: "Could not create IOProc", status: err) }
         procID = proc
         err = AudioDeviceStart(aggregateID, proc)
-        guard err == noErr else { throw EngineError(message: "Could not start audio", status: err) }
+        guard err == noErr else { throw EngineError(message: L("Could not start audio"), status: err) }
         self.device = device
         NSLog("MyOwnEQ: engine running on \(device.name) @ \(Int(sampleRate)) Hz")
     }

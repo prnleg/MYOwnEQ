@@ -1,0 +1,17 @@
+{
+  "id": "cyber-lagoon",
+  "name": "Cyber Lagoon",
+  "author": "MyOwnEQ",
+  "dark": true,
+  "accent": "#22D3EE",
+  "curve": ["#22D3EE", "#8B5CF6", "#EC4899"],
+  "spectrum": ["#22D3EE", "#1E3A8A"],
+  "background": {
+    "base": "#070D18",
+    "blobs": ["#0EA5E9", "#6D28D9", "#DB2777", "#0F766E"],
+    "intensity": 0.4,
+    "speed": 0.8
+  },
+  "panel": "#0F1A2B",
+  "glow": 0.85
+}

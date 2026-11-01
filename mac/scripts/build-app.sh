@@ -49,6 +49,25 @@ plutil -replace CFBundleShortVersionString -string "$VERSION" "$APP/Contents/Inf
 plutil -replace CFBundleVersion -string "$VERSION" "$APP/Contents/Info.plist"
 echo "    version $VERSION"
 
+# Themes + languages (shared with Windows later) + app icon rendered by the app itself.
+mkdir -p "$APP/Contents/Resources/Themes"
+cp "$ROOT"/themes/*.json "$APP/Contents/Resources/Themes/"
+mkdir -p "$APP/Contents/Resources/Lang"
+cp "$ROOT"/lang/*.json "$APP/Contents/Resources/Lang/"
+ICONSET="$OUT/AppIcon.iconset"
+rm -rf "$ICONSET" && mkdir -p "$ICONSET"
+if "$BIN" --render-icon wave 1024 "$OUT/icon-1024.png"; then
+  for sz in 16 32 128 256 512; do
+    sips -z $sz $sz "$OUT/icon-1024.png" --out "$ICONSET/icon_${sz}x${sz}.png" >/dev/null
+    sips -z $((sz * 2)) $((sz * 2)) "$OUT/icon-1024.png" --out "$ICONSET/icon_${sz}x${sz}@2x.png" >/dev/null
+  done
+  iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
+  plutil -replace CFBundleIconFile -string "AppIcon" "$APP/Contents/Info.plist"
+  echo "    icon ok"
+else
+  echo "    warning: icon render failed, using generic icon"
+fi
+
 IDENTITY="${SIGN_IDENTITY:-$(security find-identity -v -p codesigning | awk -F'"' '/Apple Development/{print $2; exit}')}"
 IDENTITY="${IDENTITY:--}"
 echo "==> Sign ($IDENTITY)"

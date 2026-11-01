@@ -1,0 +1,17 @@
+{
+  "id": "blood-moon",
+  "name": "Blood Moon",
+  "author": "MyOwnEQ",
+  "dark": true,
+  "accent": "#EF4444",
+  "curve": ["#7F1D1D", "#EF4444", "#FB923C"],
+  "spectrum": ["#EF4444", "#450A0A"],
+  "background": {
+    "base": "#0F0505",
+    "blobs": ["#991B1B", "#7C2D12", "#4C0519", "#B91C1C"],
+    "intensity": 0.42,
+    "speed": 0.6
+  },
+  "panel": "#1C0B0B",
+  "glow": 0.8
+}

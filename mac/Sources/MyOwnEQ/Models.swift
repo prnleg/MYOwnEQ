@@ -13,13 +13,13 @@ enum FilterKind: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
     var label: String {
         switch self {
-        case .peak: "Peak"
-        case .lowShelf: "Low Shelf"
-        case .highShelf: "High Shelf"
-        case .lowPass: "Low Pass"
-        case .highPass: "High Pass"
-        case .notch: "Notch"
-        case .bandPass: "Band Pass"
+        case .peak: L("Peak")
+        case .lowShelf: L("Low Shelf")
+        case .highShelf: L("High Shelf")
+        case .lowPass: L("Low Pass")
+        case .highPass: L("High Pass")
+        case .notch: L("Notch")
+        case .bandPass: L("Band Pass")
         }
     }
     var hasGain: Bool { self == .peak || self == .lowShelf || self == .highShelf }
@@ -220,12 +220,12 @@ struct UpdateInfo: Codable, Equatable {
     var isReady: Bool { state == "ready" }
     var label: String {
         switch state {
-        case "checking": "Checking for updates…"
-        case "up_to_date": "Up to date"
-        case "downloading": "Downloading \(version ?? "")…"
-        case "ready": "Version \(version ?? "") is ready. Restart to install."
-        case "error": "Update check failed: \(message ?? "")"
-        default: "Updates idle"
+        case "checking": L("Checking for updates…")
+        case "up_to_date": L("Up to date")
+        case "downloading": L("Downloading %@…", version ?? "")
+        case "ready": L("Version %@ is ready. Restart to install.", version ?? "")
+        case "error": L("Update check failed: %@", message ?? "")
+        default: L("Updates idle")
         }
     }
 }

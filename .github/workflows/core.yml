@@ -39,6 +39,8 @@ jobs:
           XC=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
           if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; fi
           echo "::notice::$(xcodebuild -version | tr '\n' ' ') / $(swift --version 2>&1 | head -1)"
+      - name: Translations complete
+        run: python3 mac/scripts/lang-keys.py --check
       - name: Build app (native arch)
         run: |
           set -o pipefail

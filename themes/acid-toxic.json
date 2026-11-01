@@ -1,0 +1,17 @@
+{
+  "id": "acid-toxic",
+  "name": "Acid Toxic",
+  "author": "MyOwnEQ",
+  "dark": true,
+  "accent": "#A3E635",
+  "curve": ["#22C55E", "#A3E635", "#FDE047"],
+  "spectrum": ["#A3E635", "#14532D"],
+  "background": {
+    "base": "#060F08",
+    "blobs": ["#16A34A", "#65A30D", "#0D9488", "#CA8A04"],
+    "intensity": 0.38,
+    "speed": 1.2
+  },
+  "panel": "#0E1A10",
+  "glow": 1.0
+}
