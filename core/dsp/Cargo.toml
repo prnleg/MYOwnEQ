@@ -1,0 +1,10 @@
+[package]
+name = "myowneq-dsp"
+description = "Real-time safe EQ DSP chain for MyOwnEQ"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+serde.workspace = true
+rtrb.workspace = true

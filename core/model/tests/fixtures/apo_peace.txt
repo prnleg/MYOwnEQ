@@ -1,0 +1,9 @@
+# Peace-style config
+Device: Speakers Realtek(R) Audio {0.0.0.00000000}.{11111111-2222-3333-4444-555555555555}
+Preamp: -3 dB
+Filter: ON PK Fc 60 Hz Gain 3 dB Q 1.4
+Filter: ON HP Fc 30 Hz
+Filter: ON NO Fc 4000 Hz Q 30
+Filter: ON PK Fc 1000 Hz Gain -2 dB BW Oct 1
+Copy: L=L R=R
+GraphicEQ: 25 -1.5; 40 0.5; 63 2

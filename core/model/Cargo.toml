@@ -1,0 +1,14 @@
+[package]
+name = "myowneq-model"
+description = "Profiles, devices, rules and file formats for MyOwnEQ"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+myowneq-dsp = { path = "../dsp" }
+serde.workspace = true
+serde_json.workspace = true
+uuid.workspace = true
+thiserror.workspace = true
+plist.workspace = true
