@@ -16,7 +16,7 @@ Então eu fiz o meu. E se vc quiser é teu tbm 🤝
 | 1 | O cérebro em Rust: EQ, perfis, fones, regra por app, importadores | ✅ FEITO |
 | 2 | Mac: pega o som do sistema inteiro + app na barra de menu | ✅ FEITO |
 | 3 | Sync (rede de casa / servidor próprio no Docker / nuvem) | 🧪 testando |
-| 4 | Windows (motor do Equalizer APO) | ⏳ em breve |
+| 4 | Windows (motor do Equalizer APO) | 🧪 testando |
 | 5 | Atualização automática e releases assinadas | ⏳ em breve |
 
 ## O que ele faz (ou deveria fazer, calma lá tbm) 💥
@@ -33,6 +33,7 @@ core/model   perfis, fones, regras, salvar/carregar, formatos
 core/sync    sync: quem mexeu por último ganha, funciona offline e se acerta depois
 core/ffi     a ponte entre o Rust e os apps nativos
 server/      servidor de sync (Docker) que roda no teu servidorzinho
+windows/     app WPF (Fluent, cara de Windows 11) na bandeja + Equalizer APO fazendo o trampo pesado
 mac/         app SwiftUI na barra de menu + Core Audio Process Tap (macOS 14.2+)
 ```
 

@@ -97,3 +97,46 @@ fn linked_device_mirrors_selection() {
     drop(pc);
     std::fs::remove_dir_all(root).ok();
 }
+
+#[test]
+fn apo_config_has_section_per_connected_device() {
+    let mut core = Core::new(None, "pc");
+    cmd(
+        &mut core,
+        json!({"cmd":"set_connected","devices":[
+        {"uid":"{0.0.0.00000000}.{aaaa}","name":"Realtek Speakers","kind":"analog"},
+        {"uid":"{0.0.0.00000000}.{bbbb}","name":"Momentum 4","kind":"bluetooth"}]}),
+    );
+    let s = cmd(
+        &mut core,
+        json!({"cmd":"set_device","device":{"uid":"{0.0.0.00000000}.{aaaa}","name":"Realtek Speakers","kind":"analog"}}),
+    );
+    let bass = s["library"]["profiles"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "Bass Boost")
+        .unwrap()["id"]
+        .clone();
+    cmd(
+        &mut core,
+        json!({"cmd":"select","group":s["group"],"profile":bass}),
+    );
+    let text = cmd(&mut core, json!({"cmd":"apo_config"}))["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(text.contains("Device: {aaaa}\nPreamp: -5.99"), "{text}");
+    assert!(
+        text.contains("Filter 1: ON LSC Fc 105 Hz Gain 6 dB"),
+        "{text}"
+    );
+    assert!(text.contains("Device: {bbbb}\nPreamp: 0 dB\n"), "{text}");
+    // Disabled -> every section flat.
+    cmd(&mut core, json!({"cmd":"set_enabled","enabled":false}));
+    let text = cmd(&mut core, json!({"cmd":"apo_config"}))["text"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    assert!(!text.contains("Filter"), "{text}");
+}

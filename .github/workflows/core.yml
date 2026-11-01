@@ -20,3 +20,10 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Interop tests (C# models vs real Rust core)
+        run: |
+          cargo build -p myowneq-ffi
+          dotnet run --project windows/InteropTests

@@ -1,0 +1,38 @@
+name: windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Rust core (DLL)
+        run: |
+          cargo build -p myowneq-ffi
+          cargo build --release -p myowneq-ffi
+
+      - name: Interop tests (C# models vs real Rust core)
+        run: dotnet run --project windows/InteropTests -c Release
+
+      - name: Publish app
+        run: dotnet publish windows/MyOwnEQ/MyOwnEQ.csproj -c Release -r win-x64 --self-contained true -o publish
+
+      - name: Check DLL is next to the exe
+        shell: pwsh
+        run: if (!(Test-Path publish/myowneq_ffi.dll)) { throw "myowneq_ffi.dll missing from publish output" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: MyOwnEQ-windows-x64
+          path: publish/

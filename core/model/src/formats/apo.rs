@@ -169,6 +169,8 @@ pub struct Section<'a> {
     pub device: Option<&'a str>,
     pub preamp_db: f64,
     pub bands: &'a [Band],
+    /// -1 (left) .. 1 (right). Written as per-channel preamps.
+    pub balance: f64,
 }
 
 /// Generate an Equalizer APO include file.
@@ -181,8 +183,26 @@ pub fn write(sections: &[Section]) -> String {
         for (i, b) in s.bands.iter().enumerate() {
             out.push_str(&format!("Filter {}: {}\n", i + 1, filter_line(b)));
         }
+        let bal = s.balance.clamp(-1.0, 1.0);
+        if bal != 0.0 {
+            // Same law as the DSP: attenuate the opposite side linearly.
+            let (l, r) = ((1.0 - bal).min(1.0), (1.0 + bal).min(1.0));
+            let db = |g: f64| if g <= 0.0 { -200.0 } else { 20.0 * g.log10() };
+            out.push_str(&format!("Channel: L\nPreamp: {} dB\n", fmt_num(db(l))));
+            out.push_str(&format!("Channel: R\nPreamp: {} dB\n", fmt_num(db(r))));
+            out.push_str("Channel: all\n");
+        }
     }
     out
+}
+
+/// Equalizer APO matches `Device:` against "name connection {GUID}". Windows
+/// endpoint ids look like `{0.0.0.00000000}.{guid}`; the trailing `{guid}`
+/// is the stable, unique part.
+pub fn device_selector(endpoint_id: &str) -> &str {
+    endpoint_id
+        .rsplit_once("}.")
+        .map_or(endpoint_id, |(_, g)| g)
 }
 
 fn filter_line(b: &Band) -> String {
@@ -240,10 +260,25 @@ mod tests {
             device: Some("KZ"),
             preamp_db: -6.4,
             bands: &bands,
+            balance: 0.0,
         }]);
         let back = parse(&text);
         assert_eq!(back.bands, bands);
         assert_eq!(back.preamp_db, Some(-6.4));
+    }
+
+    #[test]
+    fn balance_and_selector() {
+        let t = write(&[Section {
+            device: None,
+            preamp_db: 0.0,
+            bands: &[],
+            balance: 0.5,
+        }]);
+        assert!(t.contains("Channel: L\nPreamp: -6.0206 dB"), "{t}");
+        assert!(t.contains("Channel: R\nPreamp: 0 dB"));
+        assert_eq!(device_selector("{0.0.0.00000000}.{ab-cd}"), "{ab-cd}");
+        assert_eq!(device_selector("plain"), "plain");
     }
 
     #[test]

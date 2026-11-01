@@ -13,3 +13,6 @@ obj/
 /mac/.build/
 .swiftpm/
 server/.env
+/windows/publish/
+bin/
+obj/

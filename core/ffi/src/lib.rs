@@ -169,3 +169,25 @@ pub extern "C" fn meq_discover(timeout_ms: u32) -> *mut c_char {
         .map(CString::into_raw)
         .unwrap_or(std::ptr::null_mut())
 }
+
+/// Feed interleaved audio to the spectrum analyzer without processing it.
+///
+/// # Safety
+/// `audio` valid and used from one thread; `buf` has `frames * channels` floats.
+#[no_mangle]
+pub unsafe extern "C" fn meq_audio_analyze(
+    audio: *mut MeqAudio,
+    buf: *const f32,
+    frames: u32,
+    channels: u32,
+) {
+    if audio.is_null() || buf.is_null() {
+        return;
+    }
+    let len = frames as usize * channels as usize;
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        (*audio)
+            .0
+            .analyze(std::slice::from_raw_parts(buf, len), channels as usize);
+    }));
+}

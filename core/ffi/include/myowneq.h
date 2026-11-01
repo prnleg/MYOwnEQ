@@ -32,6 +32,8 @@ char *meq_discover(uint32_t timeout_ms);
 void meq_audio_free(MeqAudio *audio);
 // Real-time safe. Interleaved float32 in place.
 void meq_audio_process(MeqAudio *audio, float *buf, uint32_t frames, uint32_t channels);
+// Spectrum only, no processing (Windows: APO does the EQ).
+void meq_audio_analyze(MeqAudio *audio, const float *buf, uint32_t frames, uint32_t channels);
 // Only while stopped.
 void meq_audio_set_sample_rate(MeqAudio *audio, double sample_rate);
 

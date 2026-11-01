@@ -40,6 +40,13 @@ impl Audio {
         self.tap.push_interleaved(buf, channels);
     }
 
+    /// Feed audio to the spectrum analyzer only (no processing). Used on
+    /// Windows where Equalizer APO does the EQ and we just watch loopback.
+    #[inline]
+    pub fn analyze(&mut self, buf: &[f32], channels: usize) {
+        self.tap.push_interleaved(buf, channels);
+    }
+
     /// Not RT-safe with respect to a concurrent `process`; call while stopped.
     pub fn set_sample_rate(&mut self, sr: f64) {
         self.proc.set_sample_rate(sr);
@@ -129,6 +136,8 @@ pub enum Command {
         #[serde(default = "default_points")]
         points: usize,
     },
+    /// Equalizer APO include-file text for every connected device (Windows engine).
+    ApoConfig,
     /// Change sync mode (`config` = SyncConfig JSON).
     SyncConfigure {
         config: SyncConfig,
@@ -158,6 +167,7 @@ impl Command {
                 | Command::Preview { .. }
                 | Command::ExportApo { .. }
                 | Command::Curve { .. }
+                | Command::ApoConfig
                 | Command::SyncConfigure { .. }
                 | Command::SyncTick
                 | Command::SyncDiscover { .. }
@@ -528,10 +538,12 @@ impl Core {
                     device: None,
                     preamp_db: p.preamp_db(&bands, ctx.sample_rate),
                     bands: &bands,
+                    balance: p.balance,
                 }]);
                 return Ok(json!({ "ok": true, "text": text }));
             }
             Curve { profile, points } => return Ok(self.curve(&profile, points)),
+            ApoConfig => return Ok(json!({ "ok": true, "text": self.apo_config() })),
             SyncConfigure { config } => self.sync.apply_config(config),
             SyncTick => {
                 if !self.sync.tick(&mut self.lib) {
@@ -567,6 +579,42 @@ impl Core {
             self.lib.upsert_profile(p);
         }
         n
+    }
+
+    /// One `Device:` section per connected output, each with the profile its
+    /// group resolves to right now (rules, selection, default, preview).
+    fn apo_config(&self) -> String {
+        let ctx = RenderContext {
+            sample_rate: self.sample_rate,
+            volume: self.volume,
+        };
+        let mut rendered = Vec::new();
+        for key in &self.connected {
+            let (_, mut params) =
+                self.lib
+                    .render(key, Platform::current(), &self.apps, &self.local, &ctx);
+            if let Some(p) = self
+                .preview
+                .as_ref()
+                .filter(|_| Some(key) == self.device.as_ref())
+            {
+                let bypass = params.bypass;
+                params = p.render(&ctx);
+                params.bypass = bypass;
+            }
+            params.bypass |= !self.enabled;
+            rendered.push((apo::device_selector(&key.uid).to_string(), params));
+        }
+        let sections: Vec<apo::Section> = rendered
+            .iter()
+            .map(|(sel, p)| apo::Section {
+                device: Some(sel),
+                preamp_db: if p.bypass { 0.0 } else { p.preamp_db },
+                bands: if p.bypass { &[] } else { p.active_bands() },
+                balance: if p.bypass { 0.0 } else { p.balance },
+            })
+            .collect();
+        apo::write(&sections)
     }
 
     fn current_group(&self) -> Option<Id> {
