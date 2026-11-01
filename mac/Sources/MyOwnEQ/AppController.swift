@@ -17,6 +17,9 @@ final class AppController: ObservableObject {
     private var appWatcher: AppWatcher?
     private var lastApps: [AppWatcher.App] = []
     private var saveTask: Task<Void, Never>?
+    private var syncTimer: Timer?
+    @Published private(set) var discovered: [FoundHost] = []
+    @Published private(set) var discovering = false
 
     init() {
         core = CoreBridge(dataDir: CoreBridge.dataDir, machineID: CoreBridge.machineID())
@@ -29,6 +32,10 @@ final class AppController: ObservableObject {
         }
         devicesChanged()
         appWatcher?.fire()
+        // Poll sync a few times per second (cheap no-op when sync is off).
+        syncTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.syncTick() }
+        }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.engine.stop() }
         }
@@ -173,6 +180,56 @@ final class AppController: ObservableObject {
     private var spectrumBuf = [Float](repeating: -110, count: 160)
     func spectrum() -> [Float]? {
         core.spectrum(into: &spectrumBuf) ? spectrumBuf : nil
+    }
+
+    // MARK: - sync
+
+    private func syncTick() {
+        guard let s = state, s.sync.mode != "off" else { return }
+        let r = core.command("sync_tick")
+        if r["library"] != nil {
+            apply(r) // remote change landed: full state
+        } else if let info = r["sync"], let d = try? JSONSerialization.data(withJSONObject: info) {
+            let dec = JSONDecoder()
+            dec.keyDecodingStrategy = .convertFromSnakeCase
+            if let si = try? dec.decode(SyncInfo.self, from: d), si != s.sync { state?.sync = si }
+        }
+    }
+
+    func configureSync(mode: String, url: String = "", token: String = "", port: Int = 7878) {
+        var cfg: [String: Any] = ["mode": mode]
+        switch mode {
+        case "server": cfg["url"] = url.trimmingCharacters(in: .whitespaces); cfg["token"] = token.trimmingCharacters(in: .whitespaces)
+        case "host": cfg["port"] = port; cfg["token"] = token.isEmpty ? Self.pairingCode() : token
+        default: break
+        }
+        apply(core.command("sync_configure", ["config": cfg]))
+    }
+
+    func discover() {
+        discovering = true
+        Task.detached {
+            let found = CoreBridge.discover()
+            await MainActor.run {
+                self.discovered = found
+                self.discovering = false
+            }
+        }
+    }
+
+    static func pairingCode() -> String {
+        let alphabet = Array("23456789ABCDEFGHJKLMNPQRSTUVWXYZ")
+        let chars = (0..<8).map { _ in alphabet[Int.random(in: 0..<alphabet.count)] }
+        return String(chars[0..<4]) + "-" + String(chars[4..<8])
+    }
+
+    func link(_ other: ID) {
+        guard let g = state?.group else { return }
+        apply(core.command("link_groups", ["into": g, "other": other]))
+    }
+
+    func unlink(_ key: DeviceKey) {
+        apply(core.command("unlink_device", ["key": ["machine": key.machine, "uid": key.uid]]))
     }
 
     // MARK: - derived UI info

@@ -9,6 +9,7 @@
 //! `catch_unwind`; on panic the audio path passes audio through untouched.
 
 pub mod service;
+pub mod syncing;
 
 use service::{Audio, Core};
 use std::ffi::{c_char, CStr, CString};
@@ -150,4 +151,21 @@ pub unsafe extern "C" fn meq_audio_set_sample_rate(audio: *mut MeqAudio, sample_
     if let Some(a) = audio.as_mut() {
         let _ = catch_unwind(AssertUnwindSafe(|| a.0.set_sample_rate(sample_rate)));
     }
+}
+
+/// Browse the LAN for MyOwnEQ hosts (blocks up to `timeout_ms`). Independent of
+/// any core, so it may be called from a background thread. Returns a JSON
+/// array `[{"name","addr"}]`; free with `meq_string_free`.
+#[no_mangle]
+pub extern "C" fn meq_discover(timeout_ms: u32) -> *mut c_char {
+    let out = catch_unwind(|| {
+        let found = myowneq_sync::discovery::browse(std::time::Duration::from_millis(
+            timeout_ms.min(5000) as u64,
+        ));
+        serde_json::to_string(&found).unwrap_or_else(|_| "[]".into())
+    })
+    .unwrap_or_else(|_| "[]".into());
+    CString::new(out)
+        .map(CString::into_raw)
+        .unwrap_or(std::ptr::null_mut())
 }

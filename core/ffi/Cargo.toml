@@ -11,6 +11,8 @@ crate-type = ["staticlib", "rlib"]
 [dependencies]
 myowneq-dsp = { path = "../dsp" }
 myowneq-model = { path = "../model" }
+myowneq-sync = { path = "../sync" }
+myowneq-server = { path = "../../server" }
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

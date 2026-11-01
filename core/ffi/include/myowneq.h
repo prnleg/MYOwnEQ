@@ -25,6 +25,9 @@ uint32_t meq_core_spectrum(MeqCore *core, float *out, uint32_t n);
 // Create an audio handle bound to this core (replaces previous binding).
 MeqAudio *meq_core_make_audio(MeqCore *core, double sample_rate);
 
+// LAN discovery (any thread, blocks up to timeout_ms). JSON array; free with meq_string_free.
+char *meq_discover(uint32_t timeout_ms);
+
 // ---- audio side (audio thread) ----
 void meq_audio_free(MeqAudio *audio);
 // Real-time safe. Interleaved float32 in place.

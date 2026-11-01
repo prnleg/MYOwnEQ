@@ -6,7 +6,7 @@ struct EditorWindow: View {
     @State private var selection: ID?
     @State private var tab = Tab.easy
 
-    enum Tab: String, CaseIterable { case easy = "Easy", pro = "Pro", device = "Device & Rules" }
+    enum Tab: String, CaseIterable { case easy = "Easy", pro = "Pro", device = "Device & Rules", sync = "Sync" }
 
     var body: some View {
         NavigationSplitView {
@@ -45,9 +45,11 @@ struct EditorWindow: View {
                 Picker("", selection: $tab) {
                     ForEach(Tab.allCases, id: \.self) { Text($0.rawValue) }
                 }
-                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 420).padding(.vertical, 10)
+                .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 520).padding(.vertical, 10)
 
-                if tab == .device {
+                if tab == .sync {
+                    SyncSettings()
+                } else if tab == .device {
                     DeviceSettings()
                 } else if let id = selection ?? c.activeProfile?.id, let p = c.state?.profile(id) {
                     ProfileEditor(original: p, pro: tab == .pro).id(p.id)

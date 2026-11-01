@@ -75,6 +75,14 @@ final class CoreBridge {
         return buf.withUnsafeMutableBufferPointer { meq_core_spectrum(handle, $0.baseAddress, n) } != 0
     }
 
+    /// LAN discovery; safe off the main thread (doesn't touch the core).
+    nonisolated static func discover(timeoutMs: UInt32 = 1500) -> [FoundHost] {
+        guard let out = meq_discover(timeoutMs) else { return [] }
+        defer { meq_string_free(out) }
+        let data = Data(bytes: out, count: strlen(out))
+        return (try? JSONDecoder().decode([FoundHost].self, from: data)) ?? []
+    }
+
     // MARK: - machine identity
 
     /// Stable per-Mac id (IOPlatformUUID), hashed so the raw hardware id never leaves the machine.

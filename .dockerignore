@@ -1,0 +1,5 @@
+target
+mac/build
+mac/.build
+.git
+**/.DS_Store

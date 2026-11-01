@@ -44,6 +44,11 @@ struct QuickPanel: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             Spacer()
+            if let sync = c.state?.sync, sync.mode != "off" {
+                Image(systemName: sync.status == "connected" ? "arrow.triangle.2.circlepath" : "exclamationmark.arrow.triangle.2.circlepath")
+                    .foregroundStyle(sync.status == "connected" ? Color.secondary : Color.orange)
+                    .help(sync.status == "connected" ? "Synced" : "Sync: \(sync.status) \(sync.detail)")
+            }
             Toggle("", isOn: Binding(get: { c.state?.enabled ?? true }, set: { c.setEnabled($0) }))
                 .toggleStyle(.switch).labelsHidden()
         }

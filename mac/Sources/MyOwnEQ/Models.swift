@@ -185,12 +185,29 @@ struct CoreState: Codable, Equatable {
     var sampleRate: Double
     var library: Library
     var warnings: [String]
+    var sync: SyncInfo
 
     func profile(_ id: ID?) -> Profile? { id.flatMap { i in library.profiles.first { $0.id == i } } }
     func group(_ id: ID?) -> DeviceGroup? { id.flatMap { i in library.groups.first { $0.id == i } } }
     func rule(_ id: ID?) -> Rule? { id.flatMap { i in library.rules.first { $0.id == i } } }
     var activeProfile: Profile? { profile(resolution.profile) }
     var currentGroup: DeviceGroup? { group(group) }
+}
+
+struct SyncInfo: Codable, Equatable {
+    var mode: String          // off | server | host
+    var status: String        // off | connecting | connected | error
+    var detail: String
+    var url: String?
+    var token: String?
+    var hostPort: Int?
+    var hostAddresses: [String]?
+    var pending: Int
+}
+
+struct FoundHost: Codable, Hashable {
+    var name: String
+    var addr: String
 }
 
 struct Curve: Codable {

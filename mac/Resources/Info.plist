@@ -12,6 +12,10 @@
     <key>LSMinimumSystemVersion</key><string>14.2</string>
     <key>LSUIElement</key><true/>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>MyOwnEQ syncs your EQ profiles with your other computers on the local network.</string>
+    <key>NSBonjourServices</key>
+    <array><string>_myowneq._tcp</string></array>
     <key>NSAudioCaptureUsageDescription</key>
     <string>MyOwnEQ needs to capture system audio so it can apply your equalizer before it reaches your speakers or headphones. Audio never leaves your Mac.</string>
 </dict>

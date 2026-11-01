@@ -4,6 +4,7 @@
 //! (output device, running apps, volume). After every change it re-resolves
 //! which profile applies and pushes fresh [`EqParams`] to the audio side.
 
+use crate::syncing::{SyncConfig, SyncGlue};
 use myowneq_dsp::spectrum::{spectrum_channel, SpectrumAnalyzer, SpectrumTap};
 use myowneq_dsp::{param_channel, EqParams, ParamReceiver, ParamSender, Processor};
 use myowneq_model::device::{DeviceGroup, DeviceMember};
@@ -15,6 +16,7 @@ use myowneq_model::{
     AppSnapshot, DeviceKey, DeviceKind, Id, Library, MachineId, Platform, Profile, RenderContext,
     Resolution,
 };
+use myowneq_sync::entity::snapshot;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -127,6 +129,40 @@ pub enum Command {
         #[serde(default = "default_points")]
         points: usize,
     },
+    /// Change sync mode (`config` = SyncConfig JSON).
+    SyncConfigure {
+        config: SyncConfig,
+    },
+    /// Poll the network. Cheap; call a few times per second.
+    SyncTick,
+    /// Look for LAN hosts via mDNS (blocks for `timeout_ms`).
+    SyncDiscover {
+        #[serde(default = "default_discover_ms")]
+        timeout_ms: u64,
+    },
+}
+
+fn default_discover_ms() -> u64 {
+    1500
+}
+
+impl Command {
+    /// Commands that can never change the synced library (skip snapshotting).
+    fn is_read_only(&self) -> bool {
+        matches!(
+            self,
+            Command::GetState
+                | Command::SetApps { .. }
+                | Command::SetVolume { .. }
+                | Command::SetEnabled { .. }
+                | Command::Preview { .. }
+                | Command::ExportApo { .. }
+                | Command::Curve { .. }
+                | Command::SyncConfigure { .. }
+                | Command::SyncTick
+                | Command::SyncDiscover { .. }
+        )
+    }
 }
 
 fn default_points() -> usize {
@@ -163,6 +199,7 @@ pub struct Core {
     sender: Option<ParamSender>,
     analyzer: Option<SpectrumAnalyzer>,
     warnings: Vec<String>,
+    sync: SyncGlue,
 }
 
 impl Core {
@@ -195,6 +232,7 @@ impl Core {
             .local
             .filter(|l| l.machine.0 == machine)
             .unwrap_or_else(|| LocalState::new(MachineId(machine.into())));
+        let sync = SyncGlue::load(data_dir.clone(), machine, &lib);
         let mut core = Core {
             data_dir,
             lib,
@@ -212,6 +250,7 @@ impl Core {
             sender: None,
             analyzer: None,
             warnings,
+            sync,
         };
         core.refresh();
         core
@@ -329,9 +368,14 @@ impl Core {
     /// Execute a JSON command, return a JSON reply.
     pub fn command(&mut self, input: &str) -> String {
         let reply = match serde_json::from_str::<Command>(input) {
-            Ok(cmd) => self
-                .run(cmd)
-                .unwrap_or_else(|e| json!({ "ok": false, "error": e })),
+            Ok(cmd) => {
+                let before = (!cmd.is_read_only()).then(|| snapshot(&self.lib));
+                let r = self.run(cmd);
+                if let Some(b) = before {
+                    self.sync.record(&b, &self.lib);
+                }
+                r.unwrap_or_else(|e| json!({ "ok": false, "error": e }))
+            }
             Err(e) => json!({ "ok": false, "error": format!("bad command: {e}") }),
         };
         reply.to_string()
@@ -488,6 +532,21 @@ impl Core {
                 return Ok(json!({ "ok": true, "text": text }));
             }
             Curve { profile, points } => return Ok(self.curve(&profile, points)),
+            SyncConfigure { config } => self.sync.apply_config(config),
+            SyncTick => {
+                if !self.sync.tick(&mut self.lib) {
+                    return Ok(
+                        json!({ "ok": true, "changed": false, "sync": self.sync.status_json() }),
+                    );
+                }
+                self.save_library();
+            }
+            SyncDiscover { timeout_ms } => {
+                let found = myowneq_sync::discovery::browse(std::time::Duration::from_millis(
+                    timeout_ms.min(5000),
+                ));
+                return Ok(json!({ "ok": true, "found": found }));
+            }
         }
         self.refresh();
         Ok(self.state_with(json!({})))
@@ -576,6 +635,7 @@ impl Core {
             "sample_rate": self.sample_rate,
             "library": self.lib,
             "warnings": self.warnings,
+            "sync": self.sync.status_json(),
         })
     }
 }

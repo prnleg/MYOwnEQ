@@ -16,14 +16,36 @@ struct DeviceSettings: View {
                         Text("None (flat)").tag(ID?.none)
                         ForEach(s.library.profiles) { Text($0.name).tag(Optional($0.id)) }
                     }
-                    LabeledContent("Seen as") {
-                        VStack(alignment: .trailing) {
-                            ForEach(g.members, id: \.key) { m in
-                                Text("\(m.osName) · \(m.key.machine == s.machine ? "this Mac" : m.key.machine)")
-                                    .font(.caption).foregroundStyle(.secondary)
+                }
+
+                Section {
+                    ForEach(g.members, id: \.key) { m in
+                        HStack {
+                            Image(systemName: m.key.machine == s.machine ? "laptopcomputer" : "desktopcomputer")
+                            Text(m.osName)
+                            Text(m.key.machine == s.machine ? "this Mac" : m.key.machine)
+                                .font(.caption).foregroundStyle(.secondary)
+                            Spacer()
+                            if g.members.count > 1 {
+                                Button("Unlink") { c.unlink(m.key) }.controlSize(.small)
                             }
                         }
                     }
+                    let others = s.library.groups.filter { o in
+                        o.id != g.id && !o.members.isEmpty && o.members.allSatisfy { $0.key.machine != s.machine }
+                    }
+                    if !others.isEmpty {
+                        Menu("Link with a device from another machine…") {
+                            ForEach(others) { o in
+                                Button("\(o.name) (\(o.members.first?.key.machine ?? ""))") { c.link(o.id) }
+                            }
+                        }
+                    }
+                } header: {
+                    Text("Same headphones on other machines")
+                } footer: {
+                    Text("Linked devices share default profile, favorites, rules and the selected profile. Pick a profile here and the other machine switches too.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
 
                 Section("Favorites (shown in the menu bar while this device is connected)") {

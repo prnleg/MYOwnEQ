@@ -14,8 +14,8 @@ Então eu fiz o meu. E se vc quiser é teu tbm 🤝
 | Fase | O quê | Status |
 |---|---|---|
 | 1 | O cérebro em Rust: EQ, perfis, fones, regra por app, importadores | ✅ FEITO |
-| 2 | Mac: pega o som do sistema inteiro + app na barra de menu | 🧪 testando |
-| 3 | Sync (rede de casa / servidor próprio no Docker / nuvem) | ⏳ em breve |
+| 2 | Mac: pega o som do sistema inteiro + app na barra de menu | ✅ FEITO |
+| 3 | Sync (rede de casa / servidor próprio no Docker / nuvem) | 🧪 testando |
 | 4 | Windows (motor do Equalizer APO) | ⏳ em breve |
 | 5 | Atualização automática e releases assinadas | ⏳ em breve |
 
@@ -30,7 +30,9 @@ Então eu fiz o meu. E se vc quiser é teu tbm 🤝
 ```
 core/dsp     filtros em Rust que rodam no thread de áudio sem alocar nem travar
 core/model   perfis, fones, regras, salvar/carregar, formatos
+core/sync    sync: quem mexeu por último ganha, funciona offline e se acerta depois
 core/ffi     a ponte entre o Rust e os apps nativos
+server/      servidor de sync (Docker) que roda no teu servidorzinho
 mac/         app SwiftUI na barra de menu + Core Audio Process Tap (macOS 14.2+)
 ```
 
@@ -41,6 +43,23 @@ cargo run -p myowneq-model --example import_eqmac    # mostra teus presets do eq
 mac/scripts/build-app.sh                             # MyOwnEQ.app universal -> mac/build/
 mac/scripts/build-app.sh --native                    # só pra arquitetura do teu Mac, mais rápido
 ```
+
+## Sync 🔄
+Nada de precisar criar conta, login, nuvem de empresa nem os krl. Escolhe:
+
+**🏠 Rede de casa**: no Mac vai em *Editor → Sync → Host on this Mac*. Aparece um código tipo `7KQ2-M9XD`. No outro PC: *Connect to a server → Find on my network*, cola o código. Pronto. (Só sincroniza com o host ligado, óbvio)
+
+**🐳 Teu servidor** (o jeito certo):
+```sh
+cd server
+echo "MYOWNEQ_TOKEN=$(openssl rand -hex 16)" > .env
+docker compose up -d --build
+```
+Nos apps: *Connect to a server* → `IP-do-servidor:7878` + o token do `.env`. Vai expor pra internet? Bota atrás de um proxy com HTTPS (Caddy, Nginx, Traefik) e usa `https://teu.dominio`. Sem HTTPS teu token fica exposto (pelado) na rede, não vá cometer um vacilo desse 🤡
+
+**☁️ Nuvem**: mesma imagem Docker, qualquer VPS. Mesma regra do HTTPS.
+
+Depois liga os fones: *Device & Rules → Link with a device from another machine*. Trocou o perfil do KZ no Mac, o KZ do PC troca junto 🤝
 
 > ⚠️ Fecha o eqMac antes de abrir o MyOwnEQ. Dois EQ brigando pelo mesmo som não dá certo.
 

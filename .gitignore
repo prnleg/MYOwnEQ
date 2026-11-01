@@ -12,3 +12,4 @@ obj/
 /mac/build/
 /mac/.build/
 .swiftpm/
+server/.env
