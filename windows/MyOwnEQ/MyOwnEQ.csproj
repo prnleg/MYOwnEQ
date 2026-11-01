@@ -29,6 +29,12 @@
     <Resource Include="Assets\MyOwnEQ.ico" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Themes and languages shared with the Mac app (single source: repo themes/ and lang/). -->
+    <None Include="../../themes/*.json" Link="Themes\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="../../lang/*.json" Link="Lang\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Rust core, built by windows/build.ps1 or CI into ../../target/release -->
   <ItemGroup Condition="Exists('../../target/release/myowneq_ffi.dll')">
     <None Include="../../target/release/myowneq_ffi.dll" Link="myowneq_ffi.dll" CopyToOutputDirectory="PreserveNewest" />

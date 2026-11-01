@@ -34,6 +34,11 @@ public sealed class AppController : IDisposable
     private readonly float[] _spectrum = new float[160];
     private readonly DispatcherTimer _updateTimer;
     public UpdateInfo? Update { get; private set; }
+    /// <summary>Master volume of the current output (0…1), null when unknown.</summary>
+    public double? Volume { get; private set; }
+    /// <summary>Volume moved (keys, mixer, our slider). Separate from <see cref="Changed"/>
+    /// so a volume drag doesn't rebuild the UI under the mouse.</summary>
+    public event Action<double>? VolumeUpdated;
 
     public static string AppVersion =>
         System.Reflection.Assembly.GetEntryAssembly()?
@@ -60,7 +65,9 @@ public sealed class AppController : IDisposable
         _audio.VolumeChanged += v => _ui.BeginInvoke(() =>
         {
             Core.Command("set_volume", new { volume = v });
+            Volume = v;
             ScheduleApo();
+            VolumeUpdated?.Invoke(v);
         });
         _apps = new AppWatcher(AppsChanged);
 
@@ -178,6 +185,7 @@ public sealed class AppController : IDisposable
         _loopback = null;
         var mm = _audio.DefaultMMDevice();
         var vol = _audio.WatchVolume(mm);
+        Volume = vol;
         if (vol is { } v) Core.Command("set_volume", new { volume = v });
         if (mm is null) return;
         try { _loopback = new LoopbackAnalyzer(mm, Core); }
@@ -216,6 +224,36 @@ public sealed class AppController : IDisposable
 
     public void Delete(string id) => Apply(Core.Command("delete_profile", new { id }));
 
+    /// <summary>A debounced save not written yet (the editor won't adopt outside changes over it).</summary>
+    public Profile? PendingSave => _pendingSave;
+
+    /// <summary>Rename a profile (presets can't be renamed).</summary>
+    public void Rename(string id, string name)
+    {
+        var n = name.Trim();
+        if (n.Length == 0 || State?.FindProfile(id) is not { } p || p.Tags.Contains("builtin")) return;
+        var copy = Json.Clone(p);
+        copy.Name = n;
+        Save(copy);
+    }
+
+    /// <summary>Change the system volume of the current output.</summary>
+    public void SetVolume(double v)
+    {
+        if (!_audio.SetVolume(v)) return;
+        Volume = v;
+        Core.Command("set_volume", new { volume = v });
+    }
+
+    /// <summary>Set the current device's boost (dB). Saved and synced; not applied by
+    /// Equalizer APO (no limiter), but kept so the Mac side keeps it.</summary>
+    public void SetBoost(double db)
+    {
+        if (State?.CurrentGroup is not { } g) return;
+        g.BoostDb = Math.Clamp(db, 0, 12);
+        UpdateGroup(g);
+    }
+
     /// <summary>Audition an unsaved profile on the current device (null stops).</summary>
     public void Preview(Profile? p)
     {
@@ -241,7 +279,7 @@ public sealed class AppController : IDisposable
         if (asCorrection && name.EndsWith(" ParametricEQ", StringComparison.Ordinal)) name = name[..^" ParametricEQ".Length];
         var r = Core.Command("import_apo", new { text = System.IO.File.ReadAllText(path), name, as_correction = asCorrection });
         Apply(r);
-        if (r["warnings"] is JsonArray w && w.Count > 0) { Message = $"{name}: {w.Count} line(s) skipped"; Changed?.Invoke(); }
+        if (r["warnings"] is JsonArray w && w.Count > 0) { Message = UI.Loc.L("%@: %@ lines skipped", name, w.Count); Changed?.Invoke(); }
     }
 
     public string? ExportApo(string profileId) => Core.Command("export_apo", new { profile = profileId })["text"]?.GetValue<string>();
@@ -344,11 +382,11 @@ public sealed class AppController : IDisposable
             var r = State.Resolution;
             return r.Kind switch
             {
-                "rule" => $"because {State.FindRule(r.Rule)?.App.Name ?? "an app"} is running",
-                "rule_override" => $"manual pick while {State.FindRule(r.Rule)?.App.Name ?? "an app"} runs",
-                "selected" => "selected",
-                "default" => "device default",
-                _ => "no profile (flat)",
+                "rule" => UI.Loc.L("because %@ is running", State.FindRule(r.Rule)?.App.Name ?? UI.Loc.L("app")),
+                "rule_override" => UI.Loc.L("manual pick while %@ runs", State.FindRule(r.Rule)?.App.Name ?? UI.Loc.L("app")),
+                "selected" => UI.Loc.L("selected"),
+                "default" => UI.Loc.L("device default"),
+                _ => UI.Loc.L("no profile (flat)"),
             };
         }
     }

@@ -42,6 +42,14 @@ jobs:
           if (Test-Path $log) { Get-Content $log | ForEach-Object { "::error::$_" } }
           if ($p.ExitCode -ne 0) { throw "self-test failed with exit code $($p.ExitCode)" }
 
+      - name: Self-test screenshots (every page, for UI review)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: selftest-screenshots
+          path: ${{ runner.temp }}/meq-selftest/logs/
+          if-no-files-found: ignore
+
       - uses: actions/upload-artifact@v4
         with:
           name: MyOwnEQ-windows-x64

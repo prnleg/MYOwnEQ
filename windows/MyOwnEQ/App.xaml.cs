@@ -20,7 +20,7 @@ public partial class App : Application
     private AppController? _controller;
     private TrayIcon? _tray;
     private QuickPanel? _panel;
-    private EditorWindow? _editor;
+    private MainWindow? _editor;
     /// <summary>`--selftest`: start everything, open the windows, exit 0/1. Used by CI.</summary>
     private bool _selfTest;
 
@@ -76,6 +76,7 @@ public partial class App : Application
 
     private void Start(string[] args)
     {
+        Ui.Init(); // themes, language, UI prefs (before anything shows text)
         _controller = new AppController(Dispatcher);
 
         // A verified update downloaded last session: this launch is the "restart".
@@ -95,23 +96,51 @@ public partial class App : Application
         _tray.ShowFirstRunHint();
     }
 
+    /// <summary>Start everything, visit every page (Easy + Pro editor, Devices, Sync,
+    /// Preferences, tray panel), save a screenshot of each to logs/selftest-*.png and exit
+    /// 0, or 1 on any error. Runs in CI with a throwaway data folder.</summary>
     private void RunSelfTest()
     {
         try
         {
             Start(new[] { "--background" });
             OpenEditor();
-            TogglePanel();
-            // Let layout, timers and the first refresh run, then leave cleanly.
-            var t = new DispatcherTimer { Interval = TimeSpan.FromSeconds(3) };
+            var c = _controller!;
+            var profiles = c.State?.Library.Profiles ?? new();
+            var preset = profiles.FirstOrDefault(p => p.Name == "FPS") ?? profiles.FirstOrDefault();
+            var steps = new System.Collections.Generic.List<(string name, Action act)>();
+            if (preset is not null)
+            {
+                steps.Add(("01-easy", () => { Ui.Store.Settings.EditorPro = false; _editor!.Navigate(Nav.Preferences); _editor.Navigate(Nav.Profile(preset.Id)); }));
+                steps.Add(("02-pro", () => { Ui.Store.Settings.EditorPro = true; _editor!.Navigate(Nav.Devices); _editor.Navigate(Nav.Profile(preset.Id)); }));
+            }
+            steps.Add(("03-devices", () => _editor!.Navigate(Nav.Devices)));
+            steps.Add(("04-sync", () => _editor!.Navigate(Nav.Sync)));
+            steps.Add(("05-preferences", () => _editor!.Navigate(Nav.Preferences)));
+            steps.Add(("06-light-theme", () => Ui.Store.Select("peach-daylight")));
+            steps.Add(("07-pt-br", () => { Ui.Store.Select("neon-sunset"); Ui.Lang.Select("pt-BR"); if (preset is not null) _editor!.Navigate(Nav.Profile(preset.Id)); }));
+            steps.Add(("08-tray-panel", () => { Ui.Lang.Select(null); _panel!.ShowNearTray(); }));
+            int k = 0;
+            var t = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(900) };
             t.Tick += (_, _) =>
             {
-                t.Stop();
-                _editor?.Close();
-                _panel?.Hide();
-                _tray?.Dispose();
-                _controller?.Dispose();
-                Shutdown(0);
+                try
+                {
+                    if (k > 0) Snapshot(steps[k - 1].name, k - 1 == steps.Count - 1 ? _panel : _editor);
+                    if (k < steps.Count) { steps[k].act(); k++; return; }
+                    t.Stop();
+                    _editor?.Close();
+                    _panel?.Hide();
+                    _tray?.Dispose();
+                    _controller?.Dispose();
+                    Shutdown(0);
+                }
+                catch (Exception ex)
+                {
+                    t.Stop();
+                    Log("selftest " + (k > 0 ? steps[k - 1].name : "start"), ex);
+                    Shutdown(1);
+                }
             };
             t.Start();
         }
@@ -120,6 +149,22 @@ public partial class App : Application
             Log("selftest", ex);
             Shutdown(1);
         }
+    }
+
+    private static void Snapshot(string name, Window? w)
+    {
+        if (w?.Content is not FrameworkElement root || root.ActualWidth <= 0) return;
+        var dpi = System.Windows.Media.VisualTreeHelper.GetDpi(root);
+        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(
+            (int)(root.ActualWidth * dpi.DpiScaleX), (int)(root.ActualHeight * dpi.DpiScaleY), 96 * dpi.DpiScaleX, 96 * dpi.DpiScaleY,
+            System.Windows.Media.PixelFormats.Pbgra32);
+        rtb.Render(root);
+        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+        var dir = Path.GetDirectoryName(LogPath)!;
+        Directory.CreateDirectory(dir);
+        using var fs = File.Create(Path.Combine(dir, $"selftest-{name}.png"));
+        enc.Save(fs);
     }
 
     /// <summary>Wait for a second launch's signal on a background thread.</summary>
@@ -151,7 +196,7 @@ public partial class App : Application
         _panel?.Hide();
         if (_editor is null || !_editor.IsLoaded)
         {
-            _editor = new EditorWindow(_controller);
+            _editor = new MainWindow(_controller);
             _editor.Closed += (_, _) => _editor = null;
             _editor.Show();
         }

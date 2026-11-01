@@ -40,7 +40,7 @@ jobs:
           if [ -n "$XC" ]; then sudo xcode-select -s "$XC"; fi
           echo "::notice::$(xcodebuild -version | tr '\n' ' ') / $(swift --version 2>&1 | head -1)"
       - name: Translations complete
-        run: python3 mac/scripts/lang-keys.py --check
+        run: python3 scripts/lang-keys.py --check
       - name: Build app (native arch)
         run: |
           set -o pipefail

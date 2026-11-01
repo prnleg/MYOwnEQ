@@ -89,6 +89,20 @@ public sealed class AudioDevices : IMMNotificationClient, IDisposable
         catch { return null; }
     }
 
+    /// <summary>Set the default output's master volume (0…1), like the volume keys.</summary>
+    public bool SetVolume(double scalar)
+    {
+        try
+        {
+            var d = _watched ?? DefaultMMDevice();
+            if (d is null) return false;
+            d.AudioEndpointVolume.MasterVolumeLevelScalar = (float)Math.Clamp(scalar, 0, 1);
+            if (scalar > 0 && d.AudioEndpointVolume.Mute) d.AudioEndpointVolume.Mute = false;
+            return true;
+        }
+        catch { return false; }
+    }
+
     private void OnVolume(AudioVolumeNotificationData data) => VolumeChanged?.Invoke(data.Muted ? 0 : data.MasterVolume);
 
     // IMMNotificationClient (COM thread)
