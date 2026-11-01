@@ -287,7 +287,17 @@
         "No backup found",
         "Setup failed: %@",
         "Could not change permissions (UAC cancelled?)",
-        "Open"
+        "Open",
+        "Equalizer APO isn't enabled on “%@”, so the EQ does nothing there.",
+        "Open Device selector, tick “%@” and restart Windows. Bluetooth headphones: also open “Troubleshooting options” and try “Install APO as SFX/EFX (experimental)”.",
+        "Equalizer APO is not installed",
+        "Equalizer APO installed",
+        "MyOwnEQ is connected to it",
+        "Not connected to MyOwnEQ yet",
+        "Active on “%@”",
+        "Not enabled on “%@”",
+        "Couldn't check this output",
+        "Show generated config"
       ]
     },
     {

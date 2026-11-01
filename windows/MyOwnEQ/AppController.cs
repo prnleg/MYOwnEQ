@@ -87,7 +87,7 @@ public sealed class AppController : IDisposable
         // Equalizer APO gets installed/configured outside the app: look again
         // every 30 s until it's ready, so the setup card goes away by itself.
         _apoWatch = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
-        _apoWatch.Tick += (_, _) => { if (Apo.Status != ApoStatus.Ready) ApoRedetect(); };
+        _apoWatch.Tick += (_, _) => { if (Apo.Status != ApoStatus.Ready || ApoOnCurrent == ApoEndpoint.NotEnabled) ApoRedetect(); };
         _apoWatch.Start();
 
         UpdateReply(Core.Command("update_configure", new { version = AppVersion, platform = "windows" }));
@@ -357,6 +357,10 @@ public sealed class AppController : IDisposable
         Notify(Apo.Restore() ? UI.Loc.L("Restored your previous Equalizer APO config") : UI.Loc.L("No backup found"));
         Changed?.Invoke();
     }
+
+    /// <summary>Is Equalizer APO actually enabled on the output in use right now?</summary>
+    public ApoEndpoint ApoOnCurrent =>
+        Apo.Status != ApoStatus.Ready || Current is null ? ApoEndpoint.Unknown : ApoBackend.CheckEndpoint(Current.Id);
 
     public void ApoRedetect()
     {

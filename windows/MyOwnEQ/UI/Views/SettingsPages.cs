@@ -112,8 +112,17 @@ public static class ApoSetupCard
     {
         var apo = c.Apo;
         // Only Equalizer APO's real status decides; messages are toasts now.
-        if (apo.Status == ApoStatus.Ready) return null;
+        var onOutput = c.ApoOnCurrent;
+        if (apo.Status == ApoStatus.Ready && onOutput != ApoEndpoint.NotEnabled) return null;
         var col = Ui.VStack(8);
+        if (apo.Status == ApoStatus.Ready)
+        {
+            // Installed and configured, but not hooked into this output: Windows ignores our EQ.
+            string dev = c.Current?.Name ?? "";
+            col.Children.Add(Ui.Text(L("Equalizer APO isn't enabled on “%@”, so the EQ does nothing there.", dev), 13, FontWeights.SemiBold));
+            Ui.Add(col, Ui.Secondary(L("Open Device selector, tick “%@” and restart Windows. Bluetooth headphones: also open “Troubleshooting options” and try “Install APO as SFX/EFX (experimental)”.", dev), 12), 8, false);
+            Ui.Add(col, Ui.HStack(8, Ui.Button(L("Device selector…"), apo.OpenConfigurator, prominent: true), Ui.Button(L("Check again"), c.ApoRedetect)), 8, false);
+        }
         switch (apo.Status)
         {
             case ApoStatus.NotInstalled:
@@ -161,6 +170,9 @@ public sealed class DeviceSettings : Page
         foreach (var p in s.Library.Profiles) def.Items.Add(new ComboBoxItem { Content = p.Name, Tag = p.Id, IsSelected = p.Id == g.DefaultProfile });
         def.SelectionChanged += (_, _) => { if (def.SelectedItem is ComboBoxItem it) { g.DefaultProfile = it.Tag as string; c.UpdateGroup(g); } };
         var vol = new VolumeCard(c, compact: false) { Margin = new Thickness(0, 10, 0, 0) };
+        // parity: apo-setup
+        Card(L("Windows audio engine"), Ui.GSettings, EngineStatus(c));
+
         Card(L("Device"), Ui.GHeadphones, Ui.VStack(6,
             Labeled(L("Name"), name),
             ToggleSwitch.Row(L("EQ enabled for this device"), g.Enabled, on => { g.Enabled = on; c.UpdateGroup(g); }),
@@ -220,6 +232,33 @@ public sealed class DeviceSettings : Page
         }, glyph: Ui.GAdd)), 6, false);
         Ui.Add(rules, Ui.Secondary(L("When the app runs (or is focused) and this device is the output, its profile takes over. Rules made on the Mac need the Windows .exe filled in."), 11.5), 6, false);
         Card(L("App rules"), Ui.GSettings, rules);
+    }
+
+    /// <summary>What Equalizer APO is doing for this output, so "it does nothing" can be diagnosed.</summary>
+    private static UIElement EngineStatus(AppController c)
+    {
+        var apo = c.Apo;
+        UIElement Line(bool? ok, string text)
+        {
+            var (g, color) = ok switch
+            {
+                true => (Ui.GCheck, Brushes.LimeGreen),
+                false => (Ui.GWarning, Brushes.Orange),
+                null => (Ui.GInfo, Ui.T.InkBrush(0.5)),
+            };
+            return Ui.HStack(8, Ui.Glyph(g, 13, color), Ui.Text(text, 12.5));
+        }
+        var on = c.ApoOnCurrent;
+        var col = Ui.VStack(6,
+            Line(apo.Status != ApoStatus.NotInstalled, apo.Status == ApoStatus.NotInstalled ? L("Equalizer APO is not installed") : L("Equalizer APO installed")),
+            Line(apo.Status == ApoStatus.Ready, apo.Status == ApoStatus.Ready ? L("MyOwnEQ is connected to it") : L("Not connected to MyOwnEQ yet")),
+            Line(on == ApoEndpoint.Unknown ? null : on == ApoEndpoint.Enabled,
+                 on == ApoEndpoint.Enabled ? L("Active on “%@”", c.Current?.Name ?? "")
+                 : on == ApoEndpoint.NotEnabled ? L("Not enabled on “%@”", c.Current?.Name ?? "")
+                 : L("Couldn't check this output")));
+        Ui.Add(col, Ui.HStack(8, Ui.Button(L("Device selector…"), apo.OpenConfigurator), Ui.Button(L("Show generated config"), apo.OpenOurConfig),
+                                 Ui.Button(L("Check again"), c.ApoRedetect)), 6, false);
+        return col;
     }
 
     private UIElement RuleRow(Rule r, System.Collections.Generic.List<Profile> profiles)

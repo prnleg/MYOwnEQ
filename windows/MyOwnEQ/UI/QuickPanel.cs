@@ -75,7 +75,8 @@ public sealed class QuickPanel : Window
         var devName = Ui.Text(s?.CurrentGroup?.Name ?? _c.Current?.Name ?? L("No output"), 14, FontWeights.SemiBold);
         devName.TextTrimming = TextTrimming.CharacterEllipsis;
         devName.TextWrapping = TextWrapping.NoWrap;
-        var sub = Ui.Secondary(_c.Apo.Status != Platform.ApoStatus.Ready ? L("Equalizer APO needs setup")
+        var sub = Ui.Secondary(_c.Apo.Status != Platform.ApoStatus.Ready || _c.ApoOnCurrent == Platform.ApoEndpoint.NotEnabled
+                               ? L("Equalizer APO needs setup")
                                : (s?.Enabled ?? true) ? L("EQ on") : L("EQ off"), 11.5);
         var sw = new ToggleSwitch(s?.Enabled ?? true);
         sw.Toggled += on => _c.SetEnabled(on);
@@ -90,7 +91,7 @@ public sealed class QuickPanel : Window
         var head = Ui.Spread(Ui.HStack(10, logo, Ui.VStack(1, devName, sub)), right);
         _content.Children.Add(head);
 
-        if (_c.Apo.Status != Platform.ApoStatus.Ready)
+        if (_c.Apo.Status != Platform.ApoStatus.Ready || _c.ApoOnCurrent == Platform.ApoEndpoint.NotEnabled)
             Add(Ui.Glass(Ui.Spread(Ui.Secondary(L("Equalizer APO needs setup"), 12), Ui.Button(L("Open"), _openEditor, prominent: true)), radius: 12, padding: 10, shadow: false));
         if (_c.Update is { IsReady: true } u)
             Add(Ui.Glass(Ui.Spread(Ui.Text(L("MyOwnEQ %@ ready", u.Version ?? ""), 13), Ui.Button(L("Restart"), _restartForUpdate, prominent: true)), radius: 12, highlighted: true, padding: 10, shadow: false));

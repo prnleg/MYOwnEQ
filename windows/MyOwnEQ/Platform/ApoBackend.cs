@@ -7,6 +7,14 @@ using Microsoft.Win32;
 
 namespace MyOwnEQ.Platform;
 
+/// <summary>Is Equalizer APO hooked into a given output (endpoint)?</summary>
+public enum ApoEndpoint
+{
+    Unknown,    // couldn't read the registry: don't nag
+    Enabled,
+    NotEnabled, // installed, but not ticked for this output in its Configurator
+}
+
 public enum ApoStatus
 {
     NotInstalled,
@@ -161,6 +169,41 @@ public sealed class ApoBackend
         if (InstallPath is null) return;
         string exe = Path.Combine(InstallPath, "Configurator.exe");
         if (File.Exists(exe)) Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+    }
+
+    /// <summary>Equalizer APO's COM class id, written into an output's audio effects
+    /// (FxProperties) when it's enabled for that output in the Configurator.</summary>
+    public const string ApoClsid = "{EACD2258-FCAC-4FF4-B36D-419E924A6D79}";
+
+    /// <summary>Check whether APO is enabled on the output with this endpoint id
+    /// ("{0.0.0.00000000}.{guid}"). Status "Ready" alone isn't enough: APO is enabled
+    /// per output, and Bluetooth headphones are often left out.</summary>
+    public static ApoEndpoint CheckEndpoint(string endpointId)
+    {
+        int i = endpointId.LastIndexOf("}.", StringComparison.Ordinal);
+        string guid = i >= 0 ? endpointId[(i + 2)..] : endpointId;
+        try
+        {
+            using var k = RegistryKey.OpenBaseKey(RegistryHive.LocalMachine, RegistryView.Registry64)
+                .OpenSubKey($@"SOFTWARE\Microsoft\Windows\CurrentVersion\MMDevices\Audio\Render\{guid}\FxProperties");
+            if (k is null) return ApoEndpoint.NotEnabled; // no audio effects at all on this output
+            foreach (var name in k.GetValueNames())
+            {
+                var v = k.GetValue(name);
+                var text = v switch { string s => s, string[] a => string.Join(";", a), _ => null };
+                if (text?.Contains(ApoClsid, StringComparison.OrdinalIgnoreCase) == true) return ApoEndpoint.Enabled;
+            }
+            return ApoEndpoint.NotEnabled;
+        }
+        catch { return ApoEndpoint.Unknown; }
+    }
+
+    /// <summary>Our generated filter file, to look at what's being sent to APO.</summary>
+    public string? OurConfigFile => ConfigPath is null ? null : Path.Combine(ConfigPath, OurFile);
+
+    public void OpenOurConfig()
+    {
+        if (OurConfigFile is { } f && File.Exists(f)) Process.Start(new ProcessStartInfo("notepad.exe", $"\"{f}\"") { UseShellExecute = true });
     }
 
     public static void OpenDownloadPage() =>
