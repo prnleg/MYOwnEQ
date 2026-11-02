@@ -41,8 +41,9 @@ Cada item vira um PR próprio. Nada vai direto na `main`.
 
 Ver "Extensões" em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Ordem sugerida, porque a primeira é a base das outras:
 
-1. **Canal de controle local + linha de comando** (`myowneq select "Gaming"`, links
+1. ✅ **Canal de controle local + linha de comando** (`myowneq select "Gaming"`, links
    `myowneq://select/Gaming`). Base para Raycast, Atalhos, AutoHotkey, Stream Deck.
+   Veja [extensions/cli](extensions/cli/README.md).
 2. **Controle pelo celular**: página web simples mandando comandos pelo mesmo canal (aqui que entraria o uso do QR Code por exemplo, massa né?).
 3. **EQ do microfone**: no Windows pelo Equalizer APO nos dispositivos de captura (é fácil);
    no Mac precisa de um dispositivo de áudio virtual (driver, pede admin), por isso fica só dentro da extensão.

@@ -50,7 +50,18 @@ public partial class App : Application
             return;
         }
 
+        // Opened by a myowneq:// link (registered by the installer).
+        string? link = e.Args.FirstOrDefault(a => a.StartsWith("myowneq:", StringComparison.OrdinalIgnoreCase));
+
         _single = new Mutex(true, MutexName, out bool first);
+        if (!first && link is not null)
+        {
+            // Already running: hand the link over the control channel, then quit.
+            if (!Platform.ControlClient.TrySend(new System.Text.Json.Nodes.JsonObject { ["cmd"] = "open_url", ["url"] = link }, out var err))
+                MessageBox.Show(UI.Loc.L("Couldn't open the link: %@", err ?? "?"), "MyOwnEQ", MessageBoxButton.OK, MessageBoxImage.Warning);
+            Shutdown();
+            return;
+        }
         if (!first)
         {
             // Already running (often hidden in the tray): bring it up instead of
@@ -62,7 +73,8 @@ public partial class App : Application
 
         try
         {
-            Start(e.Args);
+            Start(link is null ? e.Args : new[] { "--background" });
+            if (link is not null) _controller?.OpenUrl(link);
         }
         catch (DllNotFoundException ex)
         {

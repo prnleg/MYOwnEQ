@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core/dsp", "core/model", "core/sync", "core/update", "core/engine", "core/ffi", "server", "tools/release"]
+members = ["core/dsp", "core/model", "core/sync", "core/update", "core/engine", "core/ffi", "server", "tools/release", "extensions/cli"]
 
 [workspace.package]
 version = "0.1.0"

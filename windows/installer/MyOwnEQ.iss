@@ -44,6 +44,11 @@ Name: "{autoprograms}\MyOwnEQ"; Filename: "{app}\MyOwnEQ.exe"
 
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "MyOwnEQ"; ValueData: """{app}\MyOwnEQ.exe"" --background"; Tasks: startup; Flags: uninsdeletevalue
+; myowneq:// links (per-user, no admin). The app hands them to the running copy.
+Root: HKCU; Subkey: "Software\Classes\myowneq"; ValueType: string; ValueName: ""; ValueData: "URL:MyOwnEQ link"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\myowneq"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\myowneq\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\MyOwnEQ.exe,0"
+Root: HKCU; Subkey: "Software\Classes\myowneq\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\MyOwnEQ.exe"" ""%1"""
 
 [Run]
 ; Equalizer APO's own installer (asks for admin, then lets you pick devices).

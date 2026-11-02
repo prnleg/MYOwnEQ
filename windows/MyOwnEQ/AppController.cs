@@ -81,7 +81,7 @@ public sealed class AppController : IDisposable
         _apps = new AppWatcher(AppsChanged);
 
         _syncTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(250) };
-        _syncTimer.Tick += (_, _) => SyncTick();
+        _syncTimer.Tick += (_, _) => { SyncTick(); ControlTick(); };
         _syncTimer.Start();
 
         // Equalizer APO gets installed/configured outside the app: look again
@@ -516,6 +516,36 @@ public sealed class AppController : IDisposable
     /// <summary>Friendly name of a machine id (from the sync's machine list).</summary>
     public string MachineName(string id) =>
         id == State?.Machine ? Environment.MachineName : State?.Sync.Peers?.FirstOrDefault(p => p.Machine == id)?.DisplayName ?? id;
+
+    // ---------------------------------------------------------------- control channel
+
+    /// <summary>Run requests from the command line / other apps (queued by the core).</summary>
+    // parity: control
+    private void ControlTick()
+    {
+        if (State?.Control?.Running != true) return;
+        if (Core.Command("control_tick")["changed"]?.GetValue<bool>() == true) Reload();
+    }
+
+    public void SetControl(bool on) => Apply(Core.Command("control_configure", new { enabled = on }));
+
+    /// <summary><c>myowneq://select/Gaming</c>, <c>myowneq://toggle</c>, <c>myowneq://import/MEQ1-…</c>.</summary>
+    // parity: links
+    public void OpenUrl(string url)
+    {
+        var r = Core.Command("open_url", new { url });
+        if (r["ok"]?.GetValue<bool>() == false)
+        {
+            Notify(UI.Loc.L("Couldn't open the link: %@", r["error"]?.GetValue<string>() ?? "?"), error: true);
+            return;
+        }
+        Apply(r);
+        var reply = r["control"];
+        if (reply?["profile"]?.GetValue<string>() is { } name)
+            Notify(reply["imported_id"] is not null ? UI.Loc.L("Imported “%@” from a share code", name) : UI.Loc.L("Now playing: %@", name));
+        else if (reply?["enabled"] is { } en)
+            Notify(en.GetValue<bool>() ? UI.Loc.L("EQ on") : UI.Loc.L("EQ off"));
+    }
 
     // ---------------------------------------------------------------- share codes
 

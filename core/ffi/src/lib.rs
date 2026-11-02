@@ -8,6 +8,7 @@
 //! No Rust panic ever crosses the boundary: every entry point is wrapped in
 //! `catch_unwind`; on panic the audio path passes audio through untouched.
 
+pub mod control;
 pub mod service;
 pub mod syncing;
 

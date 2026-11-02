@@ -1,0 +1,13 @@
+[package]
+name = "myowneq-cli"
+description = "Command line for MyOwnEQ (talks to the running app)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "myowneq"
+path = "src/main.rs"
+
+[dependencies]
+serde_json.workspace = true

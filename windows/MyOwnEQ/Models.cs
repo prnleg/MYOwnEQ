@@ -247,6 +247,12 @@ public sealed class FoundHost
     public string Addr { get; set; } = "";
 }
 
+public sealed class ControlInfo
+{
+    public bool Enabled { get; set; } = true;
+    public bool Running { get; set; }
+}
+
 public sealed class CoreState
 {
     public string Machine { get; set; } = "";
@@ -261,6 +267,8 @@ public sealed class CoreState
     public List<string> Warnings { get; set; } = new();
     public SyncInfo Sync { get; set; } = new();
     public UpdateInfo? Update { get; set; }
+    /// <summary>Local control channel (CLI, links). Null from older cores.</summary>
+    public ControlInfo? Control { get; set; }
 
     public Profile? FindProfile(string? id) => id is null ? null : Library.Profiles.FirstOrDefault(p => p.Id == id);
     public DeviceGroup? FindGroup(string? id) => id is null ? null : Library.Groups.FirstOrDefault(g => g.Id == id);

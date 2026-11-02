@@ -312,6 +312,12 @@
     "Share…": "Share…",
     "No MyOwnEQ share code on the clipboard. Copy one (MEQ1-…) and try again.": "No MyOwnEQ share code on the clipboard. Copy one (MEQ1-…) and try again.",
     "That share code is damaged or incomplete. Copy it again.": "That share code is damaged or incomplete. Copy it again.",
-    "That share code is from a newer MyOwnEQ. Update the app.": "That share code is from a newer MyOwnEQ. Update the app."
+    "That share code is from a newer MyOwnEQ. Update the app.": "That share code is from a newer MyOwnEQ. Update the app.",
+    "Other apps": "Other apps",
+    "Allow other apps to control MyOwnEQ (command line, links, Stream Deck…)": "Allow other apps to control MyOwnEQ (command line, links, Stream Deck…)",
+    "Only programs on this computer, with a secret key in your user folder. Try: myowneq select \"Gaming\" or a myowneq://toggle link.": "Only programs on this computer, with a secret key in your user folder. Try: myowneq select \"Gaming\" or a myowneq://toggle link.",
+    "Get the command line": "Get the command line",
+    "Couldn't open the link: %@": "Couldn't open the link: %@",
+    "Now playing: %@": "Now playing: %@"
   }
 }

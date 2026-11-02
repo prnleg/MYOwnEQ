@@ -16,6 +16,13 @@
     <string>MyOwnEQ syncs your EQ profiles with your other computers on the local network.</string>
     <key>NSBonjourServices</key>
     <array><string>_myowneq._tcp</string></array>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>com.prnleg.myowneq.link</string>
+            <key>CFBundleURLSchemes</key><array><string>myowneq</string></array>
+        </dict>
+    </array>
     <key>NSAudioCaptureUsageDescription</key>
     <string>MyOwnEQ needs to capture system audio so it can apply your equalizer before it reaches your speakers or headphones. Audio never leaves your Mac.</string>
 </dict>

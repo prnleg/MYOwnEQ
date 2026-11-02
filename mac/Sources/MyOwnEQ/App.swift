@@ -1,8 +1,29 @@
 import AppKit
 import SwiftUI
 
+/// Receives `myowneq://` links (SwiftUI's onOpenURL doesn't reach a menu bar app).
+final class LinkDelegate: NSObject, NSApplicationDelegate {
+    static weak var controller: AppController?
+    /// Links that arrive before the controller exists (app launched by a link).
+    private static var early: [URL] = []
+
+    func application(_ application: NSApplication, open urls: [URL]) {
+        MainActor.assumeIsolated {
+            guard let c = Self.controller else { Self.early += urls; return }
+            urls.forEach(c.openURL)
+        }
+    }
+
+    @MainActor static func attach(_ c: AppController) {
+        controller = c
+        early.forEach(c.openURL)
+        early.removeAll()
+    }
+}
+
 @main
 struct MyOwnEQApp: App {
+    @NSApplicationDelegateAdaptor(LinkDelegate.self) private var linkDelegate
     @StateObject private var controller: AppController
     @StateObject private var theme: ThemeStore
     @ObservedObject private var lang = Lang.shared
@@ -34,6 +55,7 @@ struct MyOwnEQApp: App {
             }
         }
         let c = AppController()
+        MainActor.assumeIsolated { LinkDelegate.attach(c) }
         _controller = StateObject(wrappedValue: c)
         _theme = StateObject(wrappedValue: ThemeStore(core: c.core))
     }
