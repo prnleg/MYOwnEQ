@@ -201,12 +201,19 @@ struct CoreState: Codable, Equatable {
     var warnings: [String]
     var sync: SyncInfo
     var update: UpdateInfo?
+    /// Local control channel (CLI, links). Optional: older cores don't send it.
+    var control: ControlInfo?
 
     func profile(_ id: ID?) -> Profile? { id.flatMap { i in library.profiles.first { $0.id == i } } }
     func group(_ id: ID?) -> DeviceGroup? { id.flatMap { i in library.groups.first { $0.id == i } } }
     func rule(_ id: ID?) -> Rule? { id.flatMap { i in library.rules.first { $0.id == i } } }
     var activeProfile: Profile? { profile(resolution.profile) }
     var currentGroup: DeviceGroup? { group(group) }
+}
+
+struct ControlInfo: Codable, Equatable {
+    var enabled: Bool
+    var running: Bool
 }
 
 struct SyncInfo: Codable, Equatable {

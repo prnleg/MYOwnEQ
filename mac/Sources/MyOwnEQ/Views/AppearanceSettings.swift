@@ -116,6 +116,17 @@ struct AppearanceSettings: View {
                     LoginItemToggle()
                 }
 
+                // parity: control
+                Card(title: L("Other apps"), icon: "terminal") {
+                    Toggle(L("Allow other apps to control MyOwnEQ (command line, links, Stream Deck…)"),
+                           isOn: Binding(get: { c.state?.control?.enabled ?? true }, set: { c.setControl($0) }))
+                        .toggleStyle(.switch)
+                    Text(L("Only programs on this computer, with a secret key in your user folder. Try: myowneq select \"Gaming\" or a myowneq://toggle link."))
+                        .font(.caption).foregroundStyle(.secondary)
+                    Link(L("Get the command line"), destination: URL(string: "https://github.com/prnleg/MYOwnEQ/tree/main/extensions/cli")!)
+                        .font(.caption)
+                }
+
                 // parity: diagnostics
                 Card(title: L("Help"), icon: "questionmark.circle") {
                     HStack(spacing: 8) {

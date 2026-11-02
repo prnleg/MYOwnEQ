@@ -519,6 +519,12 @@ public sealed class PreferencesPage : Page
             ToggleSwitch.Row(L("Use the MyOwnEQ engine (experimental)"), c.EngineMode, on => c.SetEngineMode(on)),
             Ui.Secondary(L("Runs MyOwnEQ's own DSP inside Equalizer APO: same sound as the Mac, a real limiter (so boost works) and instant previews. If it doesn't process audio, the app switches back by itself."), 11.5)));
 
+        // parity: control
+        Card(L("Other apps"), Ui.GTerminal, Ui.VStack(6,
+            ToggleSwitch.Row(L("Allow other apps to control MyOwnEQ (command line, links, Stream Deck…)"), c.State?.Control?.Enabled ?? true, on => c.SetControl(on)),
+            Ui.Secondary(L("Only programs on this computer, with a secret key in your user folder. Try: myowneq select \"Gaming\" or a myowneq://toggle link."), 11.5),
+            Link(L("Get the command line"), "https://github.com/prnleg/MYOwnEQ/tree/main/extensions/cli")));
+
         // parity: diagnostics
         Card(L("Help"), Ui.GInfo, Ui.VStack(8,
             Ui.HStack(8,

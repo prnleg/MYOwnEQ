@@ -66,6 +66,14 @@ jobs:
           ln -s /Applications dmg/Applications
           hdiutil create -volname "MyOwnEQ $V" -srcfolder dmg -ov -format UDZO "dist/MyOwnEQ-$V.dmg"
 
+      - name: Command line extension (universal)
+        run: |
+          cargo build --release -p myowneq-cli --target aarch64-apple-darwin --target x86_64-apple-darwin
+          mkdir -p cli
+          lipo -create -output cli/myowneq target/aarch64-apple-darwin/release/myowneq target/x86_64-apple-darwin/release/myowneq
+          cp extensions/cli/README.md cli/
+          (cd cli && zip -q ../dist/myowneq-cli-mac.zip myowneq README.md)
+
       - uses: actions/upload-artifact@v4
         with:
           name: mac
@@ -85,7 +93,7 @@ jobs:
         shell: pwsh
         run: |
           $v = $env:GITHUB_REF_NAME.TrimStart('v')
-          cargo build --release -p myowneq-ffi -p myowneq-engine
+          cargo build --release -p myowneq-ffi -p myowneq-engine -p myowneq-cli
           if (!(Test-Path target/release/myowneq_engine.dll)) { throw "myowneq_engine.dll missing" }
           dotnet publish windows/MyOwnEQ/MyOwnEQ.csproj -c Release -r win-x64 --self-contained true -p:Version=$v -o windows/publish
           if (!(Test-Path windows/publish/myowneq_ffi.dll)) { throw "myowneq_ffi.dll missing" }
@@ -108,6 +116,10 @@ jobs:
           if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
           & $iscc "/DMyAppVersion=$v" windows/installer/MyOwnEQ.iss
           if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Command line extension
+        shell: pwsh
+        run: Compress-Archive -Path target/release/myowneq.exe, extensions/cli/README.md -DestinationPath dist/myowneq-cli-windows.zip
 
       - uses: actions/upload-artifact@v4
         with:

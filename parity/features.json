@@ -237,6 +237,20 @@
       "mac": "yes",
       "windows": "yes",
       "note": "Código e QR gerados pelo core (share_code / import_code); sem servidor."
+    },
+    {
+      "id": "control",
+      "title": "Canal de controle local (linha de comando, outros apps) + opção em Preferências",
+      "mac": "yes",
+      "windows": "yes",
+      "note": "Core: control.rs. Extensão: extensions/cli."
+    },
+    {
+      "id": "links",
+      "title": "Links myowneq:// (selecionar, ligar/desligar, importar código)",
+      "mac": "yes",
+      "windows": "yes",
+      "note": "Mac: Info.plist; Windows: registro do instalador, segunda cópia repassa pelo canal."
     }
   ],
   "variable_keys": [

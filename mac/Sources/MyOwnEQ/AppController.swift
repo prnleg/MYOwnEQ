@@ -64,7 +64,10 @@ final class AppController: ObservableObject {
         }
         // Poll sync a few times per second (cheap no-op when sync is off).
         syncTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in
-            MainActor.assumeIsolated { self?.syncTick() }
+            MainActor.assumeIsolated {
+                self?.syncTick()
+                self?.controlTick()
+            }
         }
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated {
@@ -244,6 +247,36 @@ final class AppController: ObservableObject {
             let r = core.command("import_apo", ["text": text, "name": name, "as_correction": asCorrection])
             apply(r)
             if let w = r["warnings"] as? [String], !w.isEmpty { notify(L("%@: %@ lines skipped", name, w.count)) }
+        }
+    }
+
+    // MARK: - control channel (CLI, links, other apps)
+    // parity: control
+
+    /// Run requests from the command line / other apps (queued by the core).
+    private func controlTick() {
+        guard state?.control?.running == true else { return }
+        if core.command("control_tick")["changed"] as? Bool == true { reload() }
+    }
+
+    func setControl(_ on: Bool) { apply(core.command("control_configure", ["enabled": on])) }
+
+    /// `myowneq://select/Gaming`, `myowneq://toggle`, `myowneq://import/MEQ1-…`.
+    // parity: links
+    func openURL(_ url: URL) {
+        let r = core.command("open_url", ["url": url.absoluteString])
+        if r["ok"] as? Bool == false {
+            notify(L("Couldn't open the link: %@", r["error"] as? String ?? "?"), error: true)
+            return
+        }
+        apply(r)
+        let reply = r["control"] as? [String: Any] ?? [:]
+        if let name = reply["profile"] as? String, reply["imported_id"] != nil {
+            notify(L("Imported “%@” from a share code", name))
+        } else if let name = reply["profile"] as? String {
+            notify(L("Now playing: %@", name))
+        } else if let on = reply["enabled"] as? Bool {
+            notify(on ? L("EQ on") : L("EQ off"))
         }
     }
 

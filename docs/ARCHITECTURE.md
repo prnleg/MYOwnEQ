@@ -106,7 +106,7 @@ plugin ──escreve──► engine-status-<saída>.json (batimento: carregado 
 - **Interfaces nativas** (SwiftUI, WPF, GTK): mais trabalho que uma interface única, mas
   é o que dá cara de app do sistema. A paridade é garantida por regra + core comum.
 
-## Extensões (planejado)
+## Extensões
 
 O app principal fica leve; recursos pesados ou de nicho viram extensões (download
 separado). Lista e ordem em [ROADMAP.md](../ROADMAP.md).
@@ -115,10 +115,17 @@ separado). Lista e ordem em [ROADMAP.md](../ROADMAP.md).
 extensão (CLI, celular, microfone…) ──comandos JSON──► canal local do app ──► core
 ```
 
-- **Canal de controle local**: o app aceita os mesmos comandos JSON do core
-  (`select`, `set_enabled`, …) só da própria máquina — socket Unix no Mac, named pipe no
-  Windows — com um token salvo na pasta de dados do usuário. É a única coisa que o app
-  principal ganha.
+- **Canal de controle local** (`core/ffi/src/control.rs`): o core escuta só em
+  `127.0.0.1` (porta aleatória) e grava `control.json` (porta + chave secreta, só o dono
+  lê) na pasta de dados. Um pedido JSON por linha, sempre com a chave. Os pedidos entram
+  numa fila e o app os executa no timer que já roda a cada 250 ms (`control_tick`), na
+  mesma thread dos outros comandos. Só existem ações seguras: `status`, `list`, `select`,
+  `on`/`off`/`toggle`, `share`, `import`, `open_url`. Liga/desliga em Preferências.
+  Escolhemos TCP local + chave em vez de socket Unix / named pipe: um código só para as
+  três plataformas, e a chave cobre o mesmo risco.
+- **Links `myowneq://`**: o core interpreta (`open_url`), os dois apps só registram o
+  esquema (Info.plist no Mac, registro HKCU no instalador do Windows; a segunda cópia do
+  app entrega o link à primeira pelo canal e fecha).
 - **Cada extensão** mora em `extensions/<nome>/`, tem release própria e fala com o app só
   pelo canal (nada de linkar no app). A linha de comando é a primeira e serve de base
   para as outras.

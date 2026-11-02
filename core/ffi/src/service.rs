@@ -199,6 +199,17 @@ pub enum Command {
     LoadThemes {
         dirs: Vec<String>,
     },
+    /// Turn the local control channel (CLI, links, other apps) on or off.
+    ControlConfigure {
+        enabled: bool,
+    },
+    /// Run requests that arrived on the control channel. Cheap; call a few times
+    /// per second. `changed: true` = reload the UI.
+    ControlTick,
+    /// Handle a `myowneq://` link (the app was opened with it).
+    OpenUrl {
+        url: String,
+    },
     /// Share code (`MEQ1-…`) for a profile + its QR code as rows of '1'/'0'.
     ShareCode {
         profile: Id,
@@ -285,6 +296,10 @@ impl Command {
                 | Command::LoadLangs { .. }
                 | Command::Diagnostics { .. }
                 | Command::ShareCode { .. }
+                // These run their requests through `command()`, which records sync itself.
+                | Command::ControlConfigure { .. }
+                | Command::ControlTick
+                | Command::OpenUrl { .. }
         )
     }
 }
@@ -300,6 +315,9 @@ struct LocalFile {
     enabled: bool,
     #[serde(default = "yes")]
     auto_update: bool,
+    /// Local control channel (CLI, links). On unless the user turned it off.
+    #[serde(default = "yes")]
+    control: bool,
 }
 
 fn yes() -> bool {
@@ -331,6 +349,8 @@ pub struct Core {
     last_update_check: Option<std::time::Instant>,
     /// Parametric bands kept while a profile tries a graphic layout.
     eq_stash: std::collections::HashMap<Id, myowneq_model::edit::Stash>,
+    control_enabled: bool,
+    control: Option<crate::control::ControlServer>,
 }
 
 impl Core {
@@ -359,6 +379,7 @@ impl Core {
                 local: None,
                 enabled: true,
                 auto_update: true,
+                control: true,
             });
         let local = lf
             .local
@@ -387,7 +408,10 @@ impl Core {
             updater: None,
             last_update_check: None,
             eq_stash: std::collections::HashMap::new(),
+            control_enabled: lf.control,
+            control: None,
         };
+        core.start_control();
         // Loading heals presets (Library::restore_presets); persist that now
         // so the file on disk matches what the app shows.
         core.save_library();
@@ -493,6 +517,7 @@ impl Core {
                 local: Some(self.local.clone()),
                 enabled: self.enabled,
                 auto_update: self.auto_update,
+                control: self.control_enabled,
             };
             let _ = std::fs::create_dir_all(d);
             if let Ok(s) = serde_json::to_string_pretty(&lf) {
@@ -686,6 +711,29 @@ impl Core {
                 return Ok(json!({ "ok": true, "text": self.apo_config(engine_dll.as_deref()) }))
             }
             EngineConfig => return Ok(json!({ "ok": true, "text": self.engine_config() })),
+            ControlConfigure { enabled } => {
+                self.control_enabled = enabled;
+                self.save_local();
+                self.start_control();
+            }
+            ControlTick => {
+                let pending = self.control.as_ref().map(|c| c.drain()).unwrap_or_default();
+                let mut changed = false;
+                for p in pending {
+                    let (reply, ch) = self.control_request(&p.request);
+                    changed |= ch;
+                    let _ = p.reply.send(reply);
+                }
+                return Ok(json!({ "ok": true, "changed": changed }));
+            }
+            OpenUrl { url } => {
+                let req = crate::control::parse_url(&url)?;
+                let (reply, changed) = self.control_request(&req);
+                if reply["ok"] == false {
+                    return Ok(reply);
+                }
+                return Ok(self.state_with(json!({ "control": reply, "changed": changed })));
+            }
             ShareCode { profile } => {
                 let p = self.lib.profile(profile).ok_or("unknown profile")?;
                 let code = myowneq_model::share::encode(p);
@@ -982,6 +1030,143 @@ impl Core {
         }
     }
 
+    /// Start or stop the control channel to match the setting (needs a data folder).
+    fn start_control(&mut self) {
+        let want = self.control_enabled && self.data_dir.is_some();
+        if !want {
+            self.control = None;
+        } else if self.control.is_none() {
+            if let Some(d) = &self.data_dir {
+                match crate::control::ControlServer::start(d) {
+                    Ok(s) => self.control = Some(s),
+                    Err(e) => self.warnings.push(format!("control channel: {e}")),
+                }
+            }
+        }
+    }
+
+    /// Run `cmd` through `command()` (so sync records it) and parse the reply.
+    fn exec(&mut self, cmd: Value) -> Value {
+        serde_json::from_str(&self.command(&cmd.to_string())).unwrap_or(Value::Null)
+    }
+
+    /// Profile by id, exact name, or a unique part of the name (case-insensitive).
+    fn find_profile(&self, q: &str) -> Result<&Profile, String> {
+        let ps = &self.lib.profiles;
+        let ql = q.trim().to_lowercase();
+        if let Some(p) = ps.iter().find(|p| p.id.to_string() == q.trim()) {
+            return Ok(p);
+        }
+        if let Some(p) = ps.iter().find(|p| p.name.to_lowercase() == ql) {
+            return Ok(p);
+        }
+        let hits: Vec<&Profile> = ps
+            .iter()
+            .filter(|p| p.name.to_lowercase().contains(&ql))
+            .collect();
+        match hits.as_slice() {
+            [one] => Ok(one),
+            [] => Err(format!("no profile matches \"{q}\"")),
+            many => Err(format!(
+                "\"{q}\" matches {}: be more specific",
+                many.iter()
+                    .map(|p| p.name.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )),
+        }
+    }
+
+    /// One control request → (reply, did it change anything). Only these actions
+    /// are exposed; everything else in the core stays private to the app.
+    fn control_request(&mut self, req: &Value) -> (Value, bool) {
+        let arg = |k: &str| req.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+        let fail = |e: String| (json!({ "ok": false, "error": e }), false);
+        match req.get("cmd").and_then(Value::as_str).unwrap_or("") {
+            "status" => {
+                let profile = self.resolution_profile().and_then(|id| self.lib.profile(id));
+                let device = self.device.as_ref().and_then(|d| self.lib.group_for(d));
+                (
+                    json!({
+                        "ok": true,
+                        "enabled": self.enabled,
+                        "device": device.map(|g| g.name.clone()),
+                        "profile": profile.map(|p| p.name.clone()),
+                        "version": self.sync.info().version,
+                    }),
+                    false,
+                )
+            }
+            "list" => {
+                let active = self.resolution_profile();
+                let list: Vec<Value> = self
+                    .lib
+                    .profiles
+                    .iter()
+                    .map(|p| {
+                        json!({
+                            "id": p.id,
+                            "name": p.name,
+                            "preset": myowneq_model::presets::is_preset(p.id),
+                            "active": Some(p.id) == active,
+                        })
+                    })
+                    .collect();
+                (json!({ "ok": true, "profiles": list }), false)
+            }
+            "select" => {
+                let p = match self.find_profile(&arg("profile")) {
+                    Ok(p) => (p.id, p.name.clone()),
+                    Err(e) => return fail(e),
+                };
+                let Some(group) = self.current_group() else {
+                    return fail("no output device".into());
+                };
+                let r = self.exec(json!({ "cmd": "select", "group": group, "profile": p.0 }));
+                if r["ok"] == false {
+                    return (r, false);
+                }
+                (json!({ "ok": true, "profile": p.1 }), true)
+            }
+            c @ ("on" | "off" | "toggle") => {
+                let on = match c {
+                    "on" => true,
+                    "off" => false,
+                    _ => !self.enabled,
+                };
+                self.exec(json!({ "cmd": "set_enabled", "enabled": on }));
+                (json!({ "ok": true, "enabled": on }), true)
+            }
+            "share" => match self.find_profile(&arg("profile")) {
+                Ok(p) => (
+                    json!({ "ok": true, "profile": p.name, "code": myowneq_model::share::encode(p) }),
+                    false,
+                ),
+                Err(e) => fail(e),
+            },
+            "import" => {
+                let r = self.exec(json!({ "cmd": "import_code", "text": arg("text") }));
+                if r["ok"] == false {
+                    return (r, false);
+                }
+                let id = r["imported_id"].clone();
+                let name = id
+                    .as_str()
+                    .and_then(|s| self.lib.profiles.iter().find(|p| p.id.to_string() == s))
+                    .map(|p| p.name.clone());
+                (json!({ "ok": true, "imported_id": id, "profile": name }), true)
+            }
+            "open_url" => match crate::control::parse_url(&arg("url")) {
+                Ok(inner) if inner["cmd"] != "open_url" => self.control_request(&inner),
+                Ok(_) => fail("bad link".into()),
+                Err(e) => fail(e),
+            },
+            other => fail(format!(
+                "unknown command \"{other}\" (try: status, list, select, on, off, toggle, share, import, open_url)"
+            )),
+        }
+    }
+
     /// `name`, or `name (2)`, `name (3)`… if a profile already has it.
     fn unique_name(&self, name: &str) -> String {
         let taken = |n: &str| self.lib.profiles.iter().any(|p| p.name == n);
@@ -1192,6 +1377,7 @@ impl Core {
             "library": self.lib,
             "warnings": self.warnings,
             "sync": self.sync.status_json(),
+            "control": { "enabled": self.control_enabled, "running": self.control.is_some() },
             "update": self.update_json(),
         })
     }
@@ -1465,6 +1651,79 @@ mod tests {
         assert_eq!(imported["macros"]["bass"], 3.0);
         let bad = core.command(&json!({"cmd":"import_code","text":"nope"}).to_string());
         assert!(bad.contains("\"reason\":\"not_a_code\""), "{bad}");
+    }
+
+    #[test]
+    fn control_channel_end_to_end() {
+        use std::io::{BufRead, BufReader, Write};
+        let dir = std::env::temp_dir().join(format!("meq-control-{}", uuid::Uuid::new_v4()));
+        let mut core = Core::new(Some(dir.clone()), "m");
+        cmd(
+            &mut core,
+            json!({"cmd":"set_device","device":{"uid":"out1","name":"Momentum 4"}}),
+        );
+        let info: Value =
+            serde_json::from_str(&std::fs::read_to_string(dir.join("control.json")).unwrap())
+                .unwrap();
+        let (port, token) = (
+            info["port"].as_u64().unwrap() as u16,
+            info["token"].as_str().unwrap().to_string(),
+        );
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join("control.json"))
+                .unwrap()
+                .permissions()
+                .mode();
+            assert_eq!(mode & 0o077, 0, "control.json must be owner-only");
+        }
+        // A client on another thread; the "app" ticks on this one.
+        let client = std::thread::spawn(move || {
+            let s = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+            let mut r = BufReader::new(s.try_clone().unwrap());
+            let mut w = s;
+            let mut ask = |v: Value| {
+                writeln!(w, "{v}").unwrap();
+                let mut line = String::new();
+                r.read_line(&mut line).unwrap();
+                serde_json::from_str::<Value>(&line).unwrap()
+            };
+            let bad = ask(json!({"token":"nope","cmd":"status"}));
+            let sel = ask(json!({"token":token,"cmd":"select","profile":"fps"}));
+            let off = ask(json!({"token":token,"cmd":"toggle"}));
+            let st = ask(json!({"token":token,"cmd":"status"}));
+            let unknown = ask(json!({"token":token,"cmd":"delete_profile"}));
+            (bad, sel, off, st, unknown)
+        });
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !client.is_finished() && std::time::Instant::now() < deadline {
+            cmd(&mut core, json!({"cmd":"control_tick"}));
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        let (bad, sel, off, st, unknown) = client.join().unwrap();
+        assert_eq!(bad["ok"], false);
+        assert_eq!(sel["profile"], "FPS", "{sel}");
+        assert_eq!(off["enabled"], false);
+        assert_eq!(
+            (st["profile"].as_str(), st["enabled"].as_bool()),
+            (Some("FPS"), Some(false))
+        );
+        assert!(unknown["error"]
+            .as_str()
+            .unwrap()
+            .contains("unknown command"));
+        // Links go through the same code.
+        let r = cmd(&mut core, json!({"cmd":"open_url","url":"myowneq://on"}));
+        assert_eq!(r["enabled"], true);
+        // Turning it off removes the file.
+        cmd(
+            &mut core,
+            json!({"cmd":"control_configure","enabled":false}),
+        );
+        assert!(!dir.join("control.json").exists());
+        drop(core);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
