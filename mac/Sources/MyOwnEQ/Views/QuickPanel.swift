@@ -147,6 +147,7 @@ struct QuickPanel: View {
             } label: { Label(L("Editor"), systemImage: "slider.horizontal.3") }
                 .buttonStyle(GlowButtonStyle())
             Menu(L("Import")) {
+                Button(L("Share code from the clipboard")) { c.importCodeFromClipboard() }
                 Button(L("eqMac presets")) { c.importEqMac() }
                 Button(L("AutoEQ ParametricEQ.txt…")) { c.importFile(asCorrection: true) }
                 Button(L("Equalizer APO / Peace config…")) { c.importFile(asCorrection: false) }

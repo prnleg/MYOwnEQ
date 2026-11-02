@@ -180,4 +180,64 @@ public static class Dialogs
         w.Loaded += (_, _) => { box.Focus(); box.SelectAll(); };
         return w.ShowDialog() == true && !string.IsNullOrEmpty(result) ? result : null;
     }
+
+    /// <summary>Share code + QR + Copy (Mac: ShareSheet).</summary>
+    // parity: share-codes
+    public static void Share(Window? owner, AppController c, Profile p)
+    {
+        if (c.ShareCode(p.Id) is not { } share) return;
+        var w = new Window
+        {
+            Title = "MyOwnEQ",
+            SizeToContent = SizeToContent.Height,
+            Width = 440,
+            ResizeMode = ResizeMode.NoResize,
+            WindowStartupLocation = owner is null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
+            Owner = owner,
+            ShowInTaskbar = false,
+            Background = Theme.Frozen(Ui.T.PanelColor),
+        };
+        var title = Ui.Text(L("Share “%@”", p.Name), 15, FontWeights.SemiBold);
+        var hint = Ui.Secondary(L("Anyone with MyOwnEQ can paste this code to get the same EQ. No account, no server."), 12);
+        hint.TextWrapping = TextWrapping.Wrap;
+        hint.Margin = new Thickness(0, 4, 0, 14);
+        var qr = new Border
+        {
+            Background = Brushes.White, CornerRadius = new CornerRadius(12), Padding = new Thickness(12),
+            HorizontalAlignment = HorizontalAlignment.Center, Child = QrImage(share.Qr, 200),
+        };
+        var code = new TextBox
+        {
+            Text = share.Code, IsReadOnly = true, TextWrapping = TextWrapping.Wrap, FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+            FontSize = 12.5, Padding = new Thickness(8), Margin = new Thickness(0, 14, 0, 14), Background = Ui.T.InkBrush(0.06),
+            Foreground = Ui.T.InkBrush(), BorderThickness = new Thickness(0),
+        };
+        var copy = Ui.Button(L("Copy code"), () =>
+        {
+            try { Clipboard.SetText(share.Code); c.Notify(L("Share code copied")); } catch (Exception e) { c.Notify(e.Message, error: true); }
+            w.Close();
+        }, prominent: true, glyph: Ui.GCopy);
+        copy.IsDefault = true;
+        var done = Ui.Button(L("Done"), w.Close);
+        done.IsCancel = true;
+        var buttons = Ui.Spread(done, copy);
+        w.Content = new StackPanel { Margin = new Thickness(22), Children = { title, hint, qr, code, buttons } };
+        w.SourceInitialized += (_, _) => Dwm.Style(w);
+        w.ShowDialog();
+    }
+
+    /// <summary>QR modules as a crisp image (black on white in every theme, for phone cameras).</summary>
+    private static FrameworkElement QrImage(System.Collections.Generic.List<string> rows, double size)
+    {
+        int n = rows.Count;
+        var geo = new GeometryGroup { FillRule = FillRule.Nonzero };
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < rows[y].Length; x++)
+                if (rows[y][x] == '1') geo.Children.Add(new RectangleGeometry(new Rect(x, y, 1, 1)));
+        geo.Freeze();
+        var path = new System.Windows.Shapes.Path { Data = geo, Fill = Brushes.Black, Stretch = Stretch.Uniform, Width = size, Height = size, SnapsToDevicePixels = true };
+        RenderOptions.SetEdgeMode(path, EdgeMode.Aliased);
+        path.ToolTip = L("QR code");
+        return path;
+    }
 }

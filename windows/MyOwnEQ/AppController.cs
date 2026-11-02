@@ -517,6 +517,38 @@ public sealed class AppController : IDisposable
     public string MachineName(string id) =>
         id == State?.Machine ? Environment.MachineName : State?.Sync.Peers?.FirstOrDefault(p => p.Machine == id)?.DisplayName ?? id;
 
+    // ---------------------------------------------------------------- share codes
+
+    /// <summary>Share code (MEQ1-…) and QR rows ("1" = dark) for a profile.</summary>
+    // parity: share-codes
+    public (string Code, List<string> Qr)? ShareCode(string profileId)
+    {
+        var r = Core.Command("share_code", new { profile = profileId });
+        if (r["code"]?.GetValue<string>() is not { } code) { Apply(r); return null; }
+        var qr = r["qr"]?.AsArray().Select(x => x?.GetValue<string>() ?? "").ToList() ?? new();
+        return (code, qr);
+    }
+
+    /// <summary>Import the first MEQ1-… code on the clipboard; returns the new profile id.</summary>
+    public string? ImportCodeFromClipboard()
+    {
+        string text = "";
+        try { text = System.Windows.Clipboard.GetText(); } catch { }
+        var r = Core.Command("import_code", new { text });
+        string? why = r["reason"]?.GetValue<string>() switch
+        {
+            "not_a_code" => UI.Loc.L("No MyOwnEQ share code on the clipboard. Copy one (MEQ1-…) and try again."),
+            "damaged" => UI.Loc.L("That share code is damaged or incomplete. Copy it again."),
+            "newer" => UI.Loc.L("That share code is from a newer MyOwnEQ. Update the app."),
+            _ => null,
+        };
+        if (why is not null) { Notify(why, error: true); return null; }
+        Apply(r);
+        if (r["imported_id"]?.GetValue<string>() is not { } id) return null;
+        Notify(UI.Loc.L("Imported “%@” from a share code", State?.FindProfile(id)?.Name ?? ""));
+        return id;
+    }
+
     // ---------------------------------------------------------------- diagnostics
 
     /// <summary>Report for bug reports: the core's shared part + Windows sections

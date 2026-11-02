@@ -230,6 +230,13 @@
       "mac": "yes",
       "windows": "yes",
       "note": "Windows: precisa do motor MyOwnEQ (como o boost)."
+    },
+    {
+      "id": "share-codes",
+      "title": "Códigos de compartilhamento MEQ1-… (copiar, colar, QR)",
+      "mac": "yes",
+      "windows": "yes",
+      "note": "Código e QR gerados pelo core (share_code / import_code); sem servidor."
     }
   ],
   "variable_keys": [

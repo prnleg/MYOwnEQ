@@ -199,6 +199,14 @@ pub enum Command {
     LoadThemes {
         dirs: Vec<String>,
     },
+    /// Share code (`MEQ1-…`) for a profile + its QR code as rows of '1'/'0'.
+    ShareCode {
+        profile: Id,
+    },
+    /// Import the first share code found in `text` as a new profile.
+    ImportCode {
+        text: String,
+    },
     /// Plain-text report for bug reports ("Copy diagnostics"). The core writes the
     /// shared part (version, devices, active profile, sync, update); the app adds its
     /// own `sections` (OS, audio backend, log tail). Never includes sync secrets.
@@ -214,6 +222,25 @@ pub enum Command {
         #[serde(default)]
         preferred: Vec<String>,
     },
+}
+
+/// QR code of `text` as rows of '1' (dark) / '0' (light), quiet zone not included.
+/// The apps just draw squares, so no image library is needed on either side.
+fn qr_rows(text: &str) -> Vec<String> {
+    match qrcode::QrCode::with_error_correction_level(text, qrcode::EcLevel::M) {
+        Ok(q) => {
+            let w = q.width();
+            q.to_colors()
+                .chunks(w)
+                .map(|row| {
+                    row.iter()
+                        .map(|c| if *c == qrcode::Color::Dark { '1' } else { '0' })
+                        .collect()
+                })
+                .collect()
+        }
+        Err(_) => Vec::new(),
+    }
 }
 
 /// A titled block of lines the app adds to the diagnostics report.
@@ -257,6 +284,7 @@ impl Command {
                 | Command::LoadThemes { .. }
                 | Command::LoadLangs { .. }
                 | Command::Diagnostics { .. }
+                | Command::ShareCode { .. }
         )
     }
 }
@@ -658,6 +686,33 @@ impl Core {
                 return Ok(json!({ "ok": true, "text": self.apo_config(engine_dll.as_deref()) }))
             }
             EngineConfig => return Ok(json!({ "ok": true, "text": self.engine_config() })),
+            ShareCode { profile } => {
+                let p = self.lib.profile(profile).ok_or("unknown profile")?;
+                let code = myowneq_model::share::encode(p);
+                return Ok(json!({ "ok": true, "code": code, "qr": qr_rows(&code) }));
+            }
+            ImportCode { text } => {
+                use myowneq_model::share::{decode, ShareError};
+                let mut p = match decode(&text) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let reason = match e {
+                            ShareError::NotACode => "not_a_code",
+                            ShareError::Damaged => "damaged",
+                            ShareError::Newer => "newer",
+                        };
+                        return Ok(
+                            json!({ "ok": false, "error": e.to_string(), "reason": reason }),
+                        );
+                    }
+                };
+                p.name = self.unique_name(&p.name);
+                let id = p.id;
+                self.lib.upsert_profile(p);
+                self.save_library();
+                self.refresh();
+                return Ok(self.state_with(json!({ "imported_id": id })));
+            }
             Diagnostics { sections } => {
                 return Ok(json!({ "ok": true, "text": self.diagnostics(&sections) }))
             }
@@ -925,6 +980,23 @@ impl Core {
             | Resolution::Default(profile) => Some(*profile),
             Resolution::Flat => None,
         }
+    }
+
+    /// `name`, or `name (2)`, `name (3)`… if a profile already has it.
+    fn unique_name(&self, name: &str) -> String {
+        let taken = |n: &str| self.lib.profiles.iter().any(|p| p.name == n);
+        let base = if name.trim().is_empty() {
+            "Shared"
+        } else {
+            name
+        };
+        if !taken(base) {
+            return base.to_string();
+        }
+        (2..)
+            .map(|i| format!("{base} ({i})"))
+            .find(|n| !taken(n))
+            .unwrap_or_default()
     }
 
     fn diagnostics(&self, sections: &[DiagSection]) -> String {
@@ -1364,6 +1436,35 @@ mod tests {
             &mut core,
             json!({"cmd":"sync_configure","config":{"mode":"off"}}),
         );
+    }
+
+    #[test]
+    fn share_code_round_trip_through_commands() {
+        let mut core = Core::new(None, "m");
+        let mut p = Profile::new("Mine");
+        p.macros.bass = 3.0;
+        let id = p.id;
+        cmd(&mut core, json!({"cmd":"upsert_profile","profile":p}));
+        let r = cmd(&mut core, json!({"cmd":"share_code","profile":id}));
+        let code = r["code"].as_str().unwrap().to_string();
+        let qr = r["qr"].as_array().unwrap();
+        assert!(qr.len() >= 21 && qr.iter().all(|row| row.as_str().unwrap().len() == qr.len()));
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"import_code","text":format!("look: {code}")}),
+        );
+        let new_id = r["imported_id"].as_str().unwrap();
+        let lib = &r["library"]["profiles"];
+        let imported = lib
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["id"] == new_id)
+            .unwrap();
+        assert_eq!(imported["name"], "Mine (2)");
+        assert_eq!(imported["macros"]["bass"], 3.0);
+        let bad = core.command(&json!({"cmd":"import_code","text":"nope"}).to_string());
+        assert!(bad.contains("\"reason\":\"not_a_code\""), "{bad}");
     }
 
     #[test]
