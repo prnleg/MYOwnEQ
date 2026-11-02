@@ -91,10 +91,11 @@ plugin ──escreve──► engine-status-<saída>.json (batimento: carregado 
 | O quê | Onde |
 |---|---|
 | DSP, modelo, sync, servidor ponta a ponta, comandos | `cargo test --workspace` |
-| Modelos C# × core real | `windows/InteropTests` |
+| Modelos C# × core real | `windows/InteropTests` (CI: só no Windows) |
 | App do Mac lê qualquer biblioteca | `MyOwnEQ --check-library` (CI) |
-| App do Windows abre todas as telas | `MyOwnEQ.exe --selftest` + prints no CI |
+| App do Windows abre todas as telas | `MyOwnEQ.exe --selftest` (prints só quando falha) |
 | Paridade e traduções | `scripts/parity.py`, `scripts/lang-keys.py` |
+| Desinstalar limpa o Equalizer APO | `MyOwnEQ.exe --cleanup` (chamado pelo desinstalador) |
 
 ## Decisões conhecidas
 

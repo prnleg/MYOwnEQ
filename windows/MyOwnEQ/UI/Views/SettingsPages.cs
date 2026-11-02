@@ -518,7 +518,23 @@ public sealed class PreferencesPage : Page
         Card(L("Windows audio engine"), Ui.GBolt, Ui.VStack(6,
             ToggleSwitch.Row(L("Use the MyOwnEQ engine (experimental)"), c.EngineMode, on => c.SetEngineMode(on)),
             Ui.Secondary(L("Runs MyOwnEQ's own DSP inside Equalizer APO: same sound as the Mac, a real limiter (so boost works) and instant previews. If it doesn't process audio, the app switches back by itself."), 11.5)));
+
+        // parity: diagnostics
+        Card(L("Help"), Ui.GInfo, Ui.VStack(8,
+            Ui.HStack(8,
+                Ui.Button(L("Copy diagnostics"), () =>
+                {
+                    try { Clipboard.SetText(c.Diagnostics()); c.Notify(L("Diagnostics copied. Paste them in the bug report.")); }
+                    catch (Exception e) { c.Notify(e.Message, error: true); }
+                }, glyph: Ui.GCopy),
+                Ui.Button(L("Report a bug"), () => OpenUrl(BugUrl))),
+            Ui.Secondary(L("Diagnostics has versions, outputs, audio status and recent log lines. No passwords or sync codes. Check it before posting."), 11.5)));
     }
+
+    public const string BugUrl = "https://github.com/prnleg/MYOwnEQ/issues/new?template=bug.yml";
+
+    private static void OpenUrl(string url) =>
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo { FileName = url, UseShellExecute = true });
 
     private static UIElement Link(string text, string url)
     {

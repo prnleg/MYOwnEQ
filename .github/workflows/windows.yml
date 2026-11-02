@@ -3,8 +3,14 @@ name: windows
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**", ".github/ISSUE_TEMPLATE/**", "LICENSE"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**", ".github/ISSUE_TEMPLATE/**", "LICENSE"]
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -18,12 +24,10 @@ jobs:
           dotnet-version: "10.0.x"
 
       - name: Rust core (DLL)
-        run: |
-          cargo build -p myowneq-ffi -p myowneq-engine
-          cargo build --release -p myowneq-ffi -p myowneq-engine
+        run: cargo build --release -p myowneq-ffi -p myowneq-engine
 
       - name: Interop tests (C# models vs real Rust core)
-        run: dotnet run --project windows/InteropTests -c Release
+        run: dotnet run --project windows/InteropTests -c Release -p:RustDir=../../target/release
 
       - name: Publish app
         run: dotnet publish windows/MyOwnEQ/MyOwnEQ.csproj -c Release -r win-x64 --self-contained true -o publish
@@ -44,15 +48,31 @@ jobs:
           if (Test-Path $log) { Get-Content $log | ForEach-Object { "::error::$_" } }
           if ($p.ExitCode -ne 0) { throw "self-test failed with exit code $($p.ExitCode)" }
 
-      - name: Self-test screenshots (every page, for UI review)
-        if: always()
+      - name: Installer compiles (not uploaded; releases build the real one)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force windows/publish | Out-Null
+          Copy-Item publish/* windows/publish -Recurse -Force
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DMyAppVersion=0.0.0" windows/installer/MyOwnEQ.iss
+          if ($LASTEXITCODE -ne 0) { throw "ISCC failed" }
+
+      - name: Self-test screenshots + log (only when it failed)
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: selftest-screenshots
           path: ${{ runner.temp }}/meq-selftest/logs/
           if-no-files-found: ignore
+          retention-days: 7
 
-      - uses: actions/upload-artifact@v4
+      # Test build of the app (main / manual runs only). Remove once releases are
+      # the only way to get builds (see ROADMAP.md).
+      - name: App build
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
         with:
           name: MyOwnEQ-windows-x64
           path: publish/
+          retention-days: 7

@@ -171,6 +171,11 @@ pub struct RenderContext {
     pub sample_rate: f64,
     /// System output volume 0..1 (for loudness compensation).
     pub volume: f64,
+    /// The DSP has a limiter after the EQ (Mac, Windows engine). Then the automatic
+    /// preamp ignores loudness compensation, so turning the volume down doesn't
+    /// also pull everything down by the bass boost; the limiter catches peaks.
+    /// False for Equalizer APO's own filters (no limiter): stay clip-safe.
+    pub limiter_headroom: bool,
 }
 
 impl Default for RenderContext {
@@ -178,6 +183,7 @@ impl Default for RenderContext {
         RenderContext {
             sample_rate: 48_000.0,
             volume: 1.0,
+            limiter_headroom: false,
         }
     }
 }
@@ -232,7 +238,11 @@ impl Profile {
     pub fn render(&self, ctx: &RenderContext) -> EqParams {
         let bands = self.bands(ctx);
         let mut p = EqParams::from_bands(&bands);
-        p.preamp_db = self.preamp_db(&bands, ctx.sample_rate);
+        p.preamp_db = if ctx.limiter_headroom && self.limiter && self.loudness > 0.0 {
+            self.preamp_db(&self.static_bands(), ctx.sample_rate)
+        } else {
+            self.preamp_db(&bands, ctx.sample_rate)
+        };
         p.balance = self.balance.clamp(-1.0, 1.0);
         p.limiter = self.limiter;
         p
@@ -273,20 +283,48 @@ mod tests {
         p.loudness = 1.0;
         assert_eq!(
             p.bands(&RenderContext {
-                sample_rate: 48_000.0,
-                volume: 1.0
+                volume: 1.0,
+                ..Default::default()
             })
             .len(),
             0
         );
         assert_eq!(
             p.bands(&RenderContext {
-                sample_rate: 48_000.0,
-                volume: 0.1
+                volume: 0.1,
+                ..Default::default()
             })
             .len(),
             2
         );
+    }
+
+    #[test]
+    fn loudness_not_cancelled_by_auto_preamp_when_limited() {
+        let mut p = Profile::new("L");
+        p.loudness = 1.0;
+        let quiet = |limiter_headroom| {
+            p.render(&RenderContext {
+                volume: 0.3,
+                limiter_headroom,
+                ..Default::default()
+            })
+        };
+        let bass_vs_mid = |params: &EqParams| {
+            let r = response_db(
+                params.active_bands(),
+                params.preamp_db,
+                48_000.0,
+                &[40.0, 1000.0],
+            );
+            (r[0], r[1])
+        };
+        // With a limiter: mids stay at 0 dB, bass goes up.
+        let (bass, mid) = bass_vs_mid(&quiet(true));
+        assert!(mid.abs() < 0.5 && bass > 5.0, "bass {bass} mid {mid}");
+        // Without (Equalizer APO filters): clip-safe, nothing above 0 dB.
+        let (bass, mid) = bass_vs_mid(&quiet(false));
+        assert!(bass <= 0.01 && mid < -5.0, "bass {bass} mid {mid}");
     }
 
     #[test]

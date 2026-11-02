@@ -1,0 +1,28 @@
+name: Sugestão / Feature request
+description: Ideia de recurso / Idea for a feature
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Antes, dá uma olhada no [ROADMAP.md](https://github.com/prnleg/MYOwnEQ/blob/main/ROADMAP.md): talvez já esteja lá.
+        Check the [ROADMAP.md](https://github.com/prnleg/MYOwnEQ/blob/main/ROADMAP.md) first, it may already be planned.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Qual problema isso resolve? / What problem does it solve?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Ideia / Idea
+  - type: dropdown
+    id: where
+    attributes:
+      label: Onde? / Where?
+      description: Coisas grandes ou de nicho viram extensão (veja o ROADMAP). / Big or niche things become extensions.
+      options:
+        - App principal / Main app
+        - Extensão / Extension
+        - Não sei / Not sure

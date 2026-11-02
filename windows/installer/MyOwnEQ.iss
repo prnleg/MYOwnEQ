@@ -53,12 +53,21 @@ Filename: "{app}\MyOwnEQ.exe"; Description: "Launch MyOwnEQ"; Flags: nowait post
 ; Silent self-update (/RELAUNCH=1): bring the app back.
 Filename: "{app}\MyOwnEQ.exe"; Parameters: "--background"; Flags: nowait; Check: IsRelaunch
 
+[UninstallRun]
+; Unhook Equalizer APO and delete %ProgramData%\MyOwnEQ (engine), so the EQ stops.
+; AppMutex already made the user close the app. Profiles in %APPDATA% are kept.
+Filename: "{app}\MyOwnEQ.exe"; Parameters: "--cleanup"; Flags: runhidden waituntilterminated; RunOnceId: "MyOwnEQCleanup"
+
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"
 
 [Code]
 const
+  { Pinned version + SHA256: a changed or broken download is never run. To bump,
+    update both (shasum -a 256 / Get-FileHash) and check the md5 on SourceForge. }
   ApoUrl = 'https://sourceforge.net/projects/equalizerapo/files/1.4.2/EqualizerAPO-x64-1.4.2.exe/download';
+  ApoSha256 = '7403be7427bbe1936a40dded082829b6e217fc4f5990fee5cba501f0ae055afa';
+  ApoPage = 'https://sourceforge.net/projects/equalizerapo/';
 
 var
   DownloadPage: TDownloadWizardPage;
@@ -93,18 +102,24 @@ begin
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  ErrCode: Integer;
 begin
   Result := True;
   if (CurPageID = wpReady) and WizardIsTaskSelected('apo') then
   begin
     DownloadPage.Clear;
-    DownloadPage.Add(ApoUrl, 'EqualizerAPO-setup.exe', '');
+    DownloadPage.Add(ApoUrl, 'EqualizerAPO-setup.exe', ApoSha256);
     DownloadPage.Show;
     try
       try
         DownloadPage.Download;
       except
-        SuppressibleMsgBox('Could not download Equalizer APO (' + GetExceptionMessage + '). MyOwnEQ will show you where to get it.', mbError, MB_OK, IDOK);
+        { Failed or hash mismatch: never run it, send the user to the official page. }
+        DeleteFile(ExpandConstant('{tmp}\EqualizerAPO-setup.exe'));
+        SuppressibleMsgBox('Could not download a verified copy of Equalizer APO (' + GetExceptionMessage + ').' + #13#10 +
+          'Its official page will open so you can install it yourself.', mbError, MB_OK, IDOK);
+        ShellExec('open', ApoPage, '', '', SW_SHOWNORMAL, ewNoWait, ErrCode);
       end;
     finally
       DownloadPage.Hide;
