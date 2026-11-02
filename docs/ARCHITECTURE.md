@@ -105,6 +105,28 @@ plugin ──escreve──► engine-status-<saída>.json (batimento: carregado 
 - **Interfaces nativas** (SwiftUI, WPF, GTK): mais trabalho que uma interface única, mas
   é o que dá cara de app do sistema. A paridade é garantida por regra + core comum.
 
+## Extensões (planejado)
+
+O app principal fica leve; recursos pesados ou de nicho viram extensões (download
+separado). Lista e ordem em [ROADMAP.md](../ROADMAP.md).
+
+```
+extensão (CLI, celular, microfone…) ──comandos JSON──► canal local do app ──► core
+```
+
+- **Canal de controle local**: o app aceita os mesmos comandos JSON do core
+  (`select`, `set_enabled`, …) só da própria máquina — socket Unix no Mac, named pipe no
+  Windows — com um token salvo na pasta de dados do usuário. É a única coisa que o app
+  principal ganha.
+- **Cada extensão** mora em `extensions/<nome>/`, tem release própria e fala com o app só
+  pelo canal (nada de linkar no app). A linha de comando é a primeira e serve de base
+  para as outras.
+- **Paridade**: o `features.json` ganha o tipo "extension"; o `parity.py` não exige
+  extensões no app principal, mas exige que cada extensão declare em quais plataformas
+  funciona.
+- **Peso e permissões ficam na extensão**: o driver de áudio virtual do EQ de microfone
+  no Mac (pede admin) só existe para quem instalar essa extensão.
+
 ## Próxima fase: Linux
 
 Plano (ainda não implementado):

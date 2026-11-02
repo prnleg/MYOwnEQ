@@ -19,6 +19,8 @@ Então eu fiz o meu. E se vc quiser é teu tbm 🤝
 | 4 | Windows (motor do Equalizer APO) | ✅ FEITO |
 | 5 | Atualização automática e releases assinadas | ✅ FEITO |
 
+Coisas novas vão pro [ROADMAP.md](ROADMAP.md).
+
 ## O que ele faz (ou deveria fazer, calma lá tbm) 💥
 - 🎛️ **Modo Pro**: EQ paramétrico e gráfico (10/31 bandas), espectro ao vivo, a banda que vc tá mexendo fica destacada mostrando quanto mudou, limitador, balanço L/R e loudness
 - 😎 **Modo Easy (Tetinha)**: Grave / Médio / Clareza / Agudo e pronto. Presets, correção de fone pelo AutoEQ, favoritos só dos fones conectados, tudo pela barra de menu
