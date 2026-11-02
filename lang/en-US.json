@@ -286,6 +286,11 @@
     "Windows executable, e.g. cs2.exe": "Windows executable, e.g. cs2.exe",
     "Your current config.txt is backed up as %@. “Take over” turns off other EQ (e.g. Peace) so you don't get double EQ; “Keep mine” adds MyOwnEQ on top.": "Your current config.txt is backed up as %@. “Take over” turns off other EQ (e.g. Peace) so you don't get double EQ; “Keep mine” adds MyOwnEQ on top.",
     "Your Docker server (see server/docker-compose.yml), any cloud host running it, or another machine hosting on the LAN.": "Your Docker server (see server/docker-compose.yml), any cloud host running it, or another machine hosting on the LAN.",
-    "Your own": "Your own"
+    "Your own": "Your own",
+    "Copy diagnostics": "Copy diagnostics",
+    "Diagnostics copied. Paste them in the bug report.": "Diagnostics copied. Paste them in the bug report.",
+    "Diagnostics has versions, outputs, audio status and recent log lines. No passwords or sync codes. Check it before posting.": "Diagnostics has versions, outputs, audio status and recent log lines. No passwords or sync codes. Check it before posting.",
+    "Help": "Help",
+    "Report a bug": "Report a bug"
   }
 }

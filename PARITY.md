@@ -45,3 +45,4 @@ em só um dos apps sem justificativa. Veja `CONTRIBUTING.md`.
 | Aviso de permissão de captura de áudio | `audio-permission` | ✅ | — |  |
 | Importar presets do eqMac | `eqmac-import` | ✅ | — |  |
 | Self-test com prints de cada tela no CI | `selftest` | ⛔ | ✅ | Mac: só build + --check-library no CI por enquanto. |
+| Copiar diagnóstico + reportar bug | `diagnostics` | ✅ | ✅ | Parte comum gerada pelo core (comando diagnostics); cada app adiciona sistema, áudio e log. |

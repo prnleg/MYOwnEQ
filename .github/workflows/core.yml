@@ -3,7 +3,14 @@ name: core
 on:
   push:
     branches: [main]
+    paths-ignore: ["**.md", "docs/**", ".github/ISSUE_TEMPLATE/**", "LICENSE"]
   pull_request:
+    paths-ignore: ["**.md", "docs/**", ".github/ISSUE_TEMPLATE/**", "LICENSE"]
+
+# A new push to a PR cancels the run still going for the previous one.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   parity:
@@ -30,13 +37,7 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
-      - uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: "10.0.x"
-      - name: Interop tests (C# models vs real Rust core)
-        run: |
-          cargo build -p myowneq-ffi -p myowneq-engine
-          dotnet run --project windows/InteropTests
+      # Interop tests (C# × real core) run once, on Windows, in windows.yml.
 
   mac-app:
     runs-on: macos-latest

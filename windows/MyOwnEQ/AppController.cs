@@ -517,6 +517,51 @@ public sealed class AppController : IDisposable
     public string MachineName(string id) =>
         id == State?.Machine ? Environment.MachineName : State?.Sync.Peers?.FirstOrDefault(p => p.Machine == id)?.DisplayName ?? id;
 
+    // ---------------------------------------------------------------- diagnostics
+
+    /// <summary>Report for bug reports: the core's shared part + Windows sections
+    /// (system, Equalizer APO per output, engine, generated config, log tail).
+    /// The user name is masked; sync secrets never leave the core.</summary>
+    // parity: diagnostics
+    public string Diagnostics()
+    {
+        static string Mask(string s) => s.Replace(Environment.UserName, "<user>", StringComparison.OrdinalIgnoreCase);
+        var sys = new List<string>
+        {
+            $"os: {System.Runtime.InteropServices.RuntimeInformation.OSDescription} ({Environment.OSVersion.Version})",
+            $"runtime: {System.Runtime.InteropServices.RuntimeInformation.FrameworkDescription}",
+            $"language: {System.Globalization.CultureInfo.CurrentUICulture.Name}",
+        };
+        var apo = new List<string>
+        {
+            $"status: {Apo.Status}",
+            $"install: {Mask(Apo.InstallPath ?? "-")}",
+            $"config: {Mask(Apo.ConfigPath ?? "-")}",
+            $"engine mode: {EngineMode} ({EngineState})",
+        };
+        if (Apo.LastError is { } ae) apo.Add($"last error: {Mask(ae)}");
+        if (Engine.LastError is { } ee) apo.Add($"engine error: {Mask(ee)}");
+        foreach (var d in Devices)
+        {
+            string engine = EngineMode ? $", engine {EngineHost.Status(d.Id)}" : "";
+            apo.Add($"output: {d.Name} [{d.Kind}]{(d.Id == Current?.Id ? " (default)" : "")} -> APO {ApoBackend.CheckEndpoint(d.Id)}{engine}");
+        }
+        var cfg = new List<string>();
+        try { if (Apo.OurConfigFile is { } f && System.IO.File.Exists(f)) cfg.AddRange(System.IO.File.ReadAllLines(f).Take(80).Select(Mask)); }
+        catch (Exception e) { cfg.Add("unreadable: " + e.Message); }
+        var log = new List<string>();
+        try { if (System.IO.File.Exists(App.LogPath)) log.AddRange(System.IO.File.ReadAllLines(App.LogPath).TakeLast(40).Select(Mask)); }
+        catch (Exception e) { log.Add("unreadable: " + e.Message); }
+        var sections = new[]
+        {
+            new { title = "windows", lines = sys },
+            new { title = "equalizer apo", lines = apo },
+            new { title = "MyOwnEQ.txt", lines = cfg },
+            new { title = "log (last 40 lines)", lines = log },
+        };
+        return Core.Command("diagnostics", new { sections })["text"]?.GetValue<string>() ?? "";
+    }
+
     // ---------------------------------------------------------------- derived
 
     public Profile? ActiveProfile => State?.ActiveProfile;

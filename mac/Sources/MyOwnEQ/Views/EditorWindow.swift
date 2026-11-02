@@ -55,6 +55,7 @@ struct EditorWindow: View {
                 }
                 .transition(.asymmetric(insertion: .opacity.combined(with: .offset(y: 10)), removal: .opacity))
             }
+            .modifier(ClearTitleBar())
             .animation(.spring(response: 0.4, dampingFraction: 0.85), value: nav)
             .overlay(alignment: .bottom) { NoticeToast().padding(.bottom, 18) }
         }
@@ -80,6 +81,27 @@ struct EditorWindow: View {
                 .frame(width: 84, height: 84)
             Text(L("Pick a profile")).font(.title3.weight(.semibold))
             Text(L("or make a new one with +")).foregroundStyle(.secondary)
+        }
+    }
+}
+
+/// One title bar for every page: transparent, theme background showing through.
+/// Pages that scroll (Form / ScrollView: Devices, Sync, Preferences) otherwise get the
+/// toolbar material and, on macOS 26+, the scroll-edge blur, so the bar "changed"
+/// while navigating. The window title text is hidden too (the sidebar shows the logo).
+struct ClearTitleBar: ViewModifier {
+    func body(content: Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content
+                .toolbarBackground(.hidden, for: .windowToolbar)
+                .toolbar(removing: .title)
+                .scrollEdgeEffectHidden(true, for: .top)
+        } else if #available(macOS 15.0, *) {
+            content
+                .toolbarBackground(.hidden, for: .windowToolbar)
+                .toolbar(removing: .title)
+        } else {
+            content.toolbarBackground(.hidden, for: .windowToolbar)
         }
     }
 }

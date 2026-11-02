@@ -4,6 +4,7 @@ import SwiftUI
 struct AppearanceSettings: View {
     @EnvironmentObject var theme: ThemeStore
     @EnvironmentObject var lang: Lang
+    @EnvironmentObject var c: AppController
     @AppStorage("autoSave") private var autoSave = true
 
     var body: some View {
@@ -113,6 +114,24 @@ struct AppearanceSettings: View {
                 // parity: start-with-system
                 Card(title: L("System"), icon: "power") {
                     LoginItemToggle()
+                }
+
+                // parity: diagnostics
+                Card(title: L("Help"), icon: "questionmark.circle") {
+                    HStack(spacing: 8) {
+                        Button {
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(c.diagnostics(), forType: .string)
+                            c.notify(L("Diagnostics copied. Paste them in the bug report."))
+                        } label: { Label(L("Copy diagnostics"), systemImage: "doc.on.doc") }
+                        Button(L("Report a bug")) {
+                            if let url = URL(string: "https://github.com/prnleg/MYOwnEQ/issues/new?template=bug.yml") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        }
+                    }
+                    Text(L("Diagnostics has versions, outputs, audio status and recent log lines. No passwords or sync codes. Check it before posting."))
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
             .padding(20)

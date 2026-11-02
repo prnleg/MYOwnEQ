@@ -199,6 +199,13 @@ pub enum Command {
     LoadThemes {
         dirs: Vec<String>,
     },
+    /// Plain-text report for bug reports ("Copy diagnostics"). The core writes the
+    /// shared part (version, devices, active profile, sync, update); the app adds its
+    /// own `sections` (OS, audio backend, log tail). Never includes sync secrets.
+    Diagnostics {
+        #[serde(default)]
+        sections: Vec<DiagSection>,
+    },
     /// Language packs from `dirs` + which one to use for `choice` / `preferred`.
     LoadLangs {
         dirs: Vec<String>,
@@ -207,6 +214,14 @@ pub enum Command {
         #[serde(default)]
         preferred: Vec<String>,
     },
+}
+
+/// A titled block of lines the app adds to the diagnostics report.
+#[derive(Deserialize)]
+pub struct DiagSection {
+    pub title: String,
+    #[serde(default)]
+    pub lines: Vec<String>,
 }
 
 fn default_discover_ms() -> u64 {
@@ -241,6 +256,7 @@ impl Command {
                 | Command::UiConstants
                 | Command::LoadThemes { .. }
                 | Command::LoadLangs { .. }
+                | Command::Diagnostics { .. }
         )
     }
 }
@@ -397,9 +413,11 @@ impl Core {
 
     /// Recompute resolution + params and push them if they changed.
     fn refresh(&mut self) {
+        // Mac: our DSP (limiter after the EQ) plays these params.
         let ctx = RenderContext {
             sample_rate: self.sample_rate,
             volume: self.volume,
+            limiter_headroom: true,
         };
         let (res, mut params) = match &self.device {
             Some(dev) => self
@@ -623,6 +641,7 @@ impl Core {
                 let ctx = RenderContext {
                     sample_rate: self.sample_rate,
                     volume: 1.0,
+                    ..Default::default()
                 };
                 let bands = p.bands(&ctx);
                 let text = apo::write(&[apo::Section {
@@ -638,6 +657,9 @@ impl Core {
                 return Ok(json!({ "ok": true, "text": self.apo_config(engine_dll.as_deref()) }))
             }
             EngineConfig => return Ok(json!({ "ok": true, "text": self.engine_config() })),
+            Diagnostics { sections } => {
+                return Ok(json!({ "ok": true, "text": self.diagnostics(&sections) }))
+            }
             SyncConfigure { config } => self.sync.apply_config(config),
             SyncTick => {
                 if !self.sync.tick(&mut self.lib) {
@@ -791,9 +813,11 @@ impl Core {
     /// (rules, selection, default, preview, on/off). `with_boost`: fold in the
     /// device boost — only for an engine that has a limiter.
     fn render_connected(&self, with_boost: bool) -> Vec<(String, myowneq_dsp::EqParams)> {
+        // `with_boost` = our engine with its limiter; else APO filters (no limiter).
         let ctx = RenderContext {
             sample_rate: self.sample_rate,
             volume: self.volume,
+            limiter_headroom: with_boost,
         };
         let mut rendered = Vec::new();
         for key in &self.connected {
@@ -902,6 +926,131 @@ impl Core {
         }
     }
 
+    fn diagnostics(&self, sections: &[DiagSection]) -> String {
+        use std::fmt::Write;
+        let name = |id: Id| {
+            self.lib
+                .profile(id)
+                .map_or_else(|| format!("? ({id})"), |p| p.name.clone())
+        };
+        let info = self.sync.info();
+        let mut t = String::new();
+        let _ = writeln!(t, "## MyOwnEQ diagnostics\n");
+        let _ = writeln!(t, "```");
+        let _ = writeln!(
+            t,
+            "app: {} {} ({})",
+            if info.version.is_empty() {
+                "?"
+            } else {
+                &info.version
+            },
+            info.platform,
+            std::env::consts::ARCH
+        );
+        let _ = writeln!(t, "eq enabled: {}", self.enabled);
+        let _ = writeln!(t, "volume: {:.0}%", self.volume * 100.0);
+        let _ = writeln!(t, "sample rate: {} Hz", self.sample_rate);
+
+        let _ = writeln!(t, "\n[output]");
+        match self.device.as_ref().and_then(|d| self.lib.group_for(d)) {
+            Some(g) => {
+                let _ = writeln!(
+                    t,
+                    "current: {} (enabled: {}, boost: {:+.1} dB, linked outputs: {})",
+                    g.name,
+                    g.enabled,
+                    g.boost_db,
+                    g.members.len()
+                );
+            }
+            None => {
+                let _ = writeln!(t, "current: none");
+            }
+        }
+        let how = match &self.resolution {
+            Resolution::Rule { .. } => "app rule",
+            Resolution::RuleOverride { .. } => "app rule (overridden)",
+            Resolution::Selected(_) => "chosen",
+            Resolution::Default(_) => "device default",
+            Resolution::Flat => "flat",
+        };
+        let _ = writeln!(
+            t,
+            "profile: {} [{how}]",
+            self.resolution_profile().map_or("none".into(), name)
+        );
+        if self.preview.is_some() {
+            let _ = writeln!(t, "previewing an unsaved edit");
+        }
+        let p = &self.params;
+        let _ = writeln!(
+            t,
+            "dsp: {} bands, preamp {:+.1} dB, balance {:+.2}, limiter {}, bypass {}",
+            p.band_count, p.preamp_db, p.balance, p.limiter, p.bypass
+        );
+        for g in self
+            .lib
+            .groups
+            .iter()
+            .filter(|g| self.connected.iter().any(|k| g.contains(k)))
+        {
+            let _ = writeln!(
+                t,
+                "connected: {} -> {}",
+                g.name,
+                self.lib
+                    .selected
+                    .get(&g.id)
+                    .or(g.default_profile.as_ref())
+                    .map_or("flat".into(), |id| name(*id))
+            );
+        }
+
+        let presets = self
+            .lib
+            .profiles
+            .iter()
+            .filter(|p| myowneq_model::presets::is_preset(p.id))
+            .count();
+        let _ = writeln!(t, "\n[library]");
+        let _ = writeln!(
+            t,
+            "profiles: {} ({} presets), devices: {}, app rules: {}",
+            self.lib.profiles.len(),
+            presets,
+            self.lib.groups.len(),
+            self.lib.rules.len()
+        );
+
+        let _ = writeln!(t, "\n[sync]");
+        for l in self.sync.diagnostics() {
+            let _ = writeln!(t, "{l}");
+        }
+        let _ = writeln!(t, "\n[update]");
+        let u = self.update_json();
+        let _ = writeln!(
+            t,
+            "state: {}, auto: {}",
+            u.get("state").and_then(Value::as_str).unwrap_or("?"),
+            self.auto_update
+        );
+        if !self.warnings.is_empty() {
+            let _ = writeln!(t, "\n[warnings]");
+            for w in &self.warnings {
+                let _ = writeln!(t, "{w}");
+            }
+        }
+        for s in sections {
+            let _ = writeln!(t, "\n[{}]", s.title);
+            for l in &s.lines {
+                let _ = writeln!(t, "{l}");
+            }
+        }
+        let _ = writeln!(t, "```");
+        t
+    }
+
     fn current_group(&self) -> Option<Id> {
         self.device
             .as_ref()
@@ -914,9 +1063,10 @@ impl Core {
         let ctx = RenderContext {
             sample_rate: self.sample_rate,
             volume: self.volume,
+            limiter_headroom: true,
         };
         let bands = profile.bands(&ctx);
-        let preamp = profile.preamp_db(&bands, ctx.sample_rate);
+        let preamp = profile.render(&ctx).preamp_db;
         let freqs = log_grid(
             20.0,
             20_000f64.min(ctx.sample_rate * 0.49),
@@ -1169,6 +1319,46 @@ mod tests {
         let code = r["sync"]["token"].as_str().unwrap();
         assert_eq!(code.len(), 9, "{code}");
         assert_eq!(&code[4..5], "-");
+        cmd(
+            &mut core,
+            json!({"cmd":"sync_configure","config":{"mode":"off"}}),
+        );
+    }
+
+    #[test]
+    fn diagnostics_report_has_app_sections_and_no_sync_secrets() {
+        let mut core = Core::new(None, "m");
+        cmd(
+            &mut core,
+            json!({"cmd":"set_app_info","name":"PC","platform":"windows","version":"1.2.3"}),
+        );
+        cmd(
+            &mut core,
+            json!({"cmd":"set_device","device":{"uid":"out1","name":"Momentum 4"}}),
+        );
+        cmd(
+            &mut core,
+            json!({"cmd":"sync_configure","config":{"mode":"server","url":"wss://secret.example/sync","token":"TOPSECRET"}}),
+        );
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"diagnostics","sections":[{"title":"equalizer apo","lines":["Momentum 4: enabled"]}]}),
+        );
+        let t = r["text"].as_str().unwrap();
+        for want in [
+            "1.2.3 windows",
+            "Momentum 4",
+            "[sync]",
+            "mode: server",
+            "[equalizer apo]",
+            "Momentum 4: enabled",
+        ] {
+            assert!(t.contains(want), "missing {want:?} in:\n{t}");
+        }
+        assert!(
+            !t.contains("TOPSECRET") && !t.contains("secret.example"),
+            "{t}"
+        );
         cmd(
             &mut core,
             json!({"cmd":"sync_configure","config":{"mode":"off"}}),

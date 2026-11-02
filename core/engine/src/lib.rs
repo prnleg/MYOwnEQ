@@ -9,7 +9,7 @@ pub mod plugin;
 pub mod schema;
 
 use plugin::{engine_dir, Plugin};
-use std::ffi::{c_char, c_void};
+use std::ffi::c_void;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 pub type HostCallback = extern "C" fn(*mut AEffect, i32, i32, isize, *mut c_void, f32) -> isize;
@@ -241,8 +241,8 @@ pub unsafe extern "C" fn VSTPluginMain(_host: Option<HostCallback>) -> *mut AEff
 /// Plugin version as a C string (the app compares it with the copy it ships).
 #[cfg(feature = "plugin")]
 #[no_mangle]
-pub extern "C" fn myowneq_engine_version() -> *const c_char {
-    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const c_char
+pub extern "C" fn myowneq_engine_version() -> *const std::ffi::c_char {
+    concat!(env!("CARGO_PKG_VERSION"), "\0").as_ptr() as *const std::ffi::c_char
 }
 
 #[cfg(test)]

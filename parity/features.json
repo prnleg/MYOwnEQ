@@ -216,6 +216,13 @@
       "mac": "no",
       "windows": "yes",
       "note": "Mac: só build + --check-library no CI por enquanto."
+    },
+    {
+      "id": "diagnostics",
+      "title": "Copiar diagnóstico + reportar bug",
+      "mac": "yes",
+      "windows": "yes",
+      "note": "Parte comum gerada pelo core (comando diagnostics); cada app adiciona sistema, áudio e log."
     }
   ],
   "variable_keys": [

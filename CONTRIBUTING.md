@@ -45,8 +45,8 @@ visível no `PARITY.md` e alguém pode fechar depois.
 ## Testar
 
 - Mac: `mac/scripts/build-app.sh --run` (compila, fecha o app aberto e abre o novo).
-- Windows: o CI roda o app com `--selftest` e publica prints de todas as telas no
-  artefato `selftest-screenshots`.
+- Windows: o CI roda o app com `--selftest`; se falhar, publica prints de todas as
+  telas e o log no artefato `selftest-screenshots`.
 - Core: `cargo test --workspace`.
 
 ## Commits

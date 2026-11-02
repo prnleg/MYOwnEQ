@@ -195,6 +195,13 @@ public sealed class MainWindow : Window
             case "preferences": page = new PreferencesPage(_c); break;
             default: page = Empty(); break;
         }
+        // Same page rebuilt for a state refresh: keep the scroll position, so the page
+        // (and the title bar area above it) doesn't jump while sync / engine tick.
+        if (!animate && _page is ScrollViewer oldSv && page is ScrollViewer newSv && oldSv.GetType() == newSv.GetType())
+        {
+            double y = oldSv.VerticalOffset;
+            newSv.Loaded += (_, _) => newSv.ScrollToVerticalOffset(y);
+        }
         _page = page;
         _detail.Content = page;
         if (animate) Ui.Appear(page);

@@ -117,6 +117,39 @@ public sealed class ApoBackend
         return true;
     }
 
+    /// <summary>
+    /// Undo everything MyOwnEQ did to Equalizer APO (used by the uninstaller):
+    /// strip our lines from config.txt; if nothing of the user's is left (we took it
+    /// over), put the backup back instead. Then delete our include file. APO reloads and
+    /// drops our filters / the engine.
+    /// </summary>
+    public bool Unhook()
+    {
+        if (ConfigPath is null) return false;
+        if (File.Exists(MainConfig))
+        {
+            string stripped = StripOurLines(File.ReadAllText(MainConfig));
+            bool onlyOurs = !stripped.Split('\n').Any(l => l.Trim() is { Length: > 0 } t && !t.StartsWith('#'));
+            if (!(onlyOurs && Restore())) AtomicWrite(MainConfig, stripped);
+        }
+        try { File.Delete(Path.Combine(ConfigPath, OurFile)); } catch { /* APO may hold it; it's inert once not included */ }
+        Detect();
+        return true;
+    }
+
+    /// <summary>config.txt without the lines <see cref="Setup"/> adds.</summary>
+    public static string StripOurLines(string config)
+    {
+        var kept = config.Replace("\r\n", "\n").Split('\n').Where(l =>
+        {
+            var t = l.Trim();
+            bool ourInclude = t.StartsWith("Include:", StringComparison.OrdinalIgnoreCase) && t.Contains(OurFile, StringComparison.OrdinalIgnoreCase);
+            bool ourComment = t is "# Added by MyOwnEQ" || t.StartsWith("# Managed by MyOwnEQ", StringComparison.Ordinal);
+            return !ourInclude && !ourComment;
+        });
+        return string.Join("\n", kept).TrimEnd() + "\n";
+    }
+
     /// <summary>Write our include file if the content changed.</summary>
     public bool Write(string text)
     {

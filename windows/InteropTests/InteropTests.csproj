@@ -1,6 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <!-- Runs the Windows app's interop + model code against the real Rust core on any OS.
-       Run: dotnet run, project windows/InteropTests, after building myowneq-ffi. -->
+       Run: dotnet run, project windows/InteropTests, after building myowneq-ffi + myowneq-engine.
+       Uses target/debug; pass -p:RustDir=../../target/release for a release build (CI). -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net10.0</TargetFramework>
@@ -9,6 +10,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>MyOwnEQ</RootNamespace>
     <NoWarn>$(NoWarn);CA1416</NoWarn>
+    <RustDir Condition="'$(RustDir)' == ''">../../target/debug</RustDir>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../MyOwnEQ/Native.cs" />
@@ -16,11 +18,11 @@
     <Compile Include="../MyOwnEQ/CoreBridge.cs" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="../../target/debug/libmyowneq_ffi.dylib" Condition="Exists('../../target/debug/libmyowneq_ffi.dylib')" Link="libmyowneq_ffi.dylib" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../target/debug/libmyowneq_ffi.so" Condition="Exists('../../target/debug/libmyowneq_ffi.so')" Link="libmyowneq_ffi.so" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../target/debug/myowneq_ffi.dll" Condition="Exists('../../target/debug/myowneq_ffi.dll')" Link="myowneq_ffi.dll" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../target/debug/libmyowneq_engine.dylib" Condition="Exists('../../target/debug/libmyowneq_engine.dylib')" Link="libmyowneq_engine.dylib" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../target/debug/libmyowneq_engine.so" Condition="Exists('../../target/debug/libmyowneq_engine.so')" Link="libmyowneq_engine.so" CopyToOutputDirectory="PreserveNewest" />
-    <None Include="../../target/debug/myowneq_engine.dll" Condition="Exists('../../target/debug/myowneq_engine.dll')" Link="myowneq_engine.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(RustDir)/libmyowneq_ffi.dylib" Condition="Exists('$(RustDir)/libmyowneq_ffi.dylib')" Link="libmyowneq_ffi.dylib" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(RustDir)/libmyowneq_ffi.so" Condition="Exists('$(RustDir)/libmyowneq_ffi.so')" Link="libmyowneq_ffi.so" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(RustDir)/myowneq_ffi.dll" Condition="Exists('$(RustDir)/myowneq_ffi.dll')" Link="myowneq_ffi.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(RustDir)/libmyowneq_engine.dylib" Condition="Exists('$(RustDir)/libmyowneq_engine.dylib')" Link="libmyowneq_engine.dylib" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(RustDir)/libmyowneq_engine.so" Condition="Exists('$(RustDir)/libmyowneq_engine.so')" Link="libmyowneq_engine.so" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(RustDir)/myowneq_engine.dll" Condition="Exists('$(RustDir)/myowneq_engine.dll')" Link="myowneq_engine.dll" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

@@ -66,6 +66,42 @@ impl SyncGlue {
         g
     }
 
+    pub fn info(&self) -> &PeerInfo {
+        &self.info
+    }
+
+    /// Sync section of the diagnostics report. Never includes the token or server URL.
+    pub fn diagnostics(&self) -> Vec<String> {
+        let mode = match &self.config {
+            SyncConfig::Off => "off",
+            SyncConfig::Server { .. } => "server",
+            SyncConfig::Host { .. } => "host (this machine)",
+        };
+        let mut v = vec![
+            format!("mode: {mode}"),
+            format!(
+                "status: {}{}",
+                self.status,
+                if self.detail.is_empty() {
+                    String::new()
+                } else {
+                    format!(" ({})", self.detail)
+                }
+            ),
+            format!("pending changes: {}", self.replica.outbox.len()),
+        ];
+        for p in &self.peers {
+            v.push(format!(
+                "peer: {} [{} {}] {}",
+                p.info.name,
+                p.info.platform,
+                p.info.version,
+                if p.online { "online" } else { "offline" }
+            ));
+        }
+        v
+    }
+
     /// Name / platform / version shown to the other machines. Reconnects if it changed.
     pub fn set_info(&mut self, info: PeerInfo) {
         if info == self.info {

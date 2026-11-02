@@ -44,6 +44,11 @@ public partial class App : Application
             RunSelfTest();
             return;
         }
+        if (e.Args.Contains("--cleanup"))
+        {
+            Shutdown(Cleanup());
+            return;
+        }
 
         _single = new Mutex(true, MutexName, out bool first);
         if (!first)
@@ -234,6 +239,23 @@ public partial class App : Application
         _showEvent?.Dispose();
         _single?.Dispose();
         base.OnExit(e);
+    }
+
+    /// <summary>`--cleanup` (run by the uninstaller after closing the app): unhook
+    /// Equalizer APO and delete the engine folder, so the EQ stops after uninstalling.
+    /// Profiles in %APPDATA% are kept (they may be synced elsewhere).</summary>
+    private static int Cleanup()
+    {
+        int code = 0;
+        try
+        {
+            var apo = new Platform.ApoBackend();
+            apo.Detect();
+            apo.Unhook();
+        }
+        catch (Exception ex) { Log("cleanup apo", ex); code = 1; }
+        if (!Platform.EngineHost.RemoveAll()) { Log("cleanup engine", null); code = 1; }
+        return code;
     }
 
     /// <summary>Append to %APPDATA%\MyOwnEQ\logs\myowneq.log (never throws).</summary>

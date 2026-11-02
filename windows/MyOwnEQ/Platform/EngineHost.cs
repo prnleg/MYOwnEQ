@@ -82,6 +82,24 @@ public sealed class EngineHost
         return i >= 0 ? endpointId[(i + 2)..] : endpointId;
     }
 
+    /// <summary>Delete <see cref="Dir"/> (uninstall). The audio service may keep the
+    /// plugin loaded for a moment after APO's config changes, so retry for a few
+    /// seconds; whatever is still locked is harmless once APO no longer references it.</summary>
+    public static bool RemoveAll(int waitMs = 5000)
+    {
+        var deadline = Environment.TickCount64 + waitMs;
+        while (true)
+        {
+            try
+            {
+                if (Directory.Exists(Dir)) Directory.Delete(Dir, recursive: true);
+                return true;
+            }
+            catch when (Environment.TickCount64 < deadline) { System.Threading.Thread.Sleep(250); }
+            catch { return false; }
+        }
+    }
+
     public enum State { Off, Waiting, Loaded, Processing }
 
     /// <summary>What the plugin reports for this output: loaded (heartbeat fresh) and

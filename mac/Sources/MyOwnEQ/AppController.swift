@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import OSLog
 
 @MainActor
 final class AppController: ObservableObject {
@@ -439,6 +440,43 @@ final class AppController: ObservableObject {
     func machineName(_ id: String) -> String {
         if id == state?.machine { return Host.current().localizedName ?? id }
         return state?.sync.peers?.first { $0.machine == id }?.displayName ?? id
+    }
+
+    // MARK: - diagnostics
+
+    /// Report for bug reports: the core's shared part + Mac sections (system, audio
+    /// tap, recent log lines). The user name is masked; sync secrets never leave the core.
+    // parity: diagnostics
+    func diagnostics() -> String {
+        let user = NSUserName()
+        func mask(_ s: String) -> String { user.isEmpty ? s : s.replacingOccurrences(of: user, with: "<user>") }
+        let os = ProcessInfo.processInfo.operatingSystemVersionString
+        let sys = [
+            "os: macOS \(os)",
+            "language: \(Locale.preferredLanguages.first ?? "?")",
+        ]
+        var audio = [
+            "tap running: \(engineRunning)\(engine.isRunning ? " @ \(Int(engine.sampleRate)) Hz" : "")",
+        ]
+        if let e = engineError { audio.append("tap error: \(mask(e))") }
+        for d in devices {
+            audio.append("output: \(d.name) [\(d.kind.rawValue)]\(d.uid == current?.uid ? " (default)" : "")")
+        }
+        var log: [String] = []
+        if let store = try? OSLogStore(scope: .currentProcessIdentifier) {
+            let since = store.position(date: Date().addingTimeInterval(-6 * 3600))
+            let entries = (try? store.getEntries(at: since)) ?? AnySequence([])
+            log = entries.compactMap { $0 as? OSLogEntryLog }
+                .filter { $0.composedMessage.contains("MyOwnEQ") }
+                .suffix(40)
+                .map { mask("\($0.date.formatted(date: .omitted, time: .standard)) \($0.composedMessage)") }
+        }
+        let sections: [[String: Any]] = [
+            ["title": "mac", "lines": sys],
+            ["title": "audio tap", "lines": audio],
+            ["title": "log (last 40 lines)", "lines": log],
+        ]
+        return core.command("diagnostics", ["sections": sections])["text"] as? String ?? ""
     }
 
     // parity: audio-permission
