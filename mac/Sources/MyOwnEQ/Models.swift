@@ -86,6 +86,13 @@ enum Preamp: Codable, Equatable {
 
 struct Macros: Codable, Equatable {
     var bass = 0.0, mids = 0.0, clarity = 0.0, treble = 0.0
+    /// Whole-spectrum slope (dB): + brighter, − warmer.
+    var tilt = 0.0
+}
+
+/// Headphone crossfeed strength (core: myowneq_dsp::Crossfeed).
+enum Crossfeed: String, Codable, CaseIterable {
+    case off, light, normal, strong
 }
 
 struct CorrectionSource: Codable, Equatable {
@@ -104,6 +111,7 @@ struct Profile: Codable, Equatable, Identifiable {
     var balance = 0.0
     var limiter = true
     var loudness = 0.0
+    var crossfeed: Crossfeed = .off
     var tags: [String] = []
 
     var isBuiltin: Bool { tags.contains("builtin") }
@@ -319,7 +327,8 @@ extension Macros {
     init(from d: Decoder) throws {
         let c = try d.container(keyedBy: CodingKeys.self)
         self.init(bass: try c.get(.bass, 0), mids: try c.get(.mids, 0),
-                  clarity: try c.get(.clarity, 0), treble: try c.get(.treble, 0))
+                  clarity: try c.get(.clarity, 0), treble: try c.get(.treble, 0),
+                  tilt: try c.get(.tilt, 0))
     }
 }
 
@@ -336,6 +345,7 @@ extension Profile {
                   balance: try c.get(.balance, 0),
                   limiter: try c.get(.limiter, true),
                   loudness: try c.get(.loudness, 0),
+                  crossfeed: (try? c.decodeIfPresent(Crossfeed.self, forKey: .crossfeed)) ?? .off,
                   tags: try c.get(.tags, []))
     }
 }

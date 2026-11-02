@@ -1,7 +1,7 @@
 //! EQ profiles and how they render into DSP parameters.
 
 use crate::Id;
-use myowneq_dsp::{loudness::loudness_bands, response::auto_preamp_db, Band, EqParams};
+use myowneq_dsp::{loudness::loudness_bands, response::auto_preamp_db, Band, Crossfeed, EqParams};
 use serde::{Deserialize, Serialize};
 
 /// Preamp mode. `Auto` keeps the loudest boost at 0 dB to avoid clipping.
@@ -108,7 +108,15 @@ pub struct Macros {
     pub clarity: f64,
     #[serde(default)]
     pub treble: f64,
+    /// Whole-spectrum slope in dB (20 Hz → 20 kHz): + brighter, − warmer.
+    /// Pivots around 1 kHz, handy for "AutoEQ, but a bit warmer".
+    #[serde(default)]
+    pub tilt: f64,
 }
+
+/// Tilt pivot and shelf slope (very gentle shelves = a smooth slope).
+const TILT_PIVOT_HZ: f64 = 1000.0;
+const TILT_Q: f64 = 0.4;
 
 impl Macros {
     pub fn to_bands(&self) -> Vec<Band> {
@@ -117,6 +125,8 @@ impl Macros {
             Band::peak(MACRO_SPOTS[1].1, self.mids, 0.7),
             Band::peak(MACRO_SPOTS[2].1, self.clarity, 1.0),
             Band::high_shelf(MACRO_SPOTS[3].1, self.treble, 0.707),
+            Band::low_shelf(TILT_PIVOT_HZ, -self.tilt / 2.0, TILT_Q),
+            Band::high_shelf(TILT_PIVOT_HZ, self.tilt / 2.0, TILT_Q),
         ]
         .into_iter()
         .filter(|b| b.gain_db != 0.0)
@@ -157,6 +167,9 @@ pub struct Profile {
     /// Loudness compensation strength 0..1 (0 = off).
     #[serde(default)]
     pub loudness: f64,
+    /// Headphone crossfeed (needs our DSP: Mac, Windows engine).
+    #[serde(default)]
+    pub crossfeed: Crossfeed,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
 }
@@ -201,6 +214,7 @@ impl Profile {
             balance: 0.0,
             limiter: true,
             loudness: 0.0,
+            crossfeed: Crossfeed::Off,
             tags: Vec::new(),
         }
     }
@@ -245,6 +259,7 @@ impl Profile {
         };
         p.balance = self.balance.clamp(-1.0, 1.0);
         p.limiter = self.limiter;
+        p.crossfeed = self.crossfeed;
         p
     }
 }
@@ -325,6 +340,21 @@ mod tests {
         // Without (Equalizer APO filters): clip-safe, nothing above 0 dB.
         let (bass, mid) = bass_vs_mid(&quiet(false));
         assert!(bass <= 0.01 && mid < -5.0, "bass {bass} mid {mid}");
+    }
+
+    #[test]
+    fn tilt_slopes_around_1k() {
+        let mut p = Profile::new("T");
+        p.macros.tilt = 6.0;
+        p.preamp = Preamp::Manual(0.0);
+        let params = p.render(&RenderContext::default());
+        let r = response_db(
+            params.active_bands(),
+            0.0,
+            48_000.0,
+            &[30.0, 1000.0, 16_000.0],
+        );
+        assert!(r[0] < -2.0 && r[1].abs() < 0.5 && r[2] > 2.0, "{r:?}");
     }
 
     #[test]

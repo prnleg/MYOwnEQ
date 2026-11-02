@@ -85,6 +85,7 @@ struct ProPanel: View {
                         GlowSlider(value: $profile.loudness, range: 0...1, bipolar: false)
                         Text(profile.loudness == 0 ? "off" : "\(Int(profile.loudness * 100))%").font(.caption).frame(width: 38)
                     }
+                    CrossfeedRow(value: $profile.crossfeed)
                 }
             }
 

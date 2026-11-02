@@ -86,7 +86,12 @@ public sealed class Macros
     public double Mids { get; set; }
     public double Clarity { get; set; }
     public double Treble { get; set; }
+    /// <summary>Whole-spectrum slope (dB): + brighter, − warmer.</summary>
+    public double Tilt { get; set; }
 }
+
+/// <summary>Headphone crossfeed strength (core: myowneq_dsp::Crossfeed).</summary>
+public enum Crossfeed { Off, Light, Normal, Strong }
 
 public sealed class CorrectionSource
 {
@@ -106,6 +111,7 @@ public sealed class Profile
     public double Balance { get; set; }
     public bool Limiter { get; set; } = true;
     public double Loudness { get; set; }
+    public Crossfeed Crossfeed { get; set; }
     public List<string> Tags { get; set; } = new();
 
     public static string NewId() => Guid.NewGuid().ToString().ToLowerInvariant();

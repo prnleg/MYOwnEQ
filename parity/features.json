@@ -223,6 +223,13 @@
       "mac": "yes",
       "windows": "yes",
       "note": "Parte comum gerada pelo core (comando diagnostics); cada app adiciona sistema, áudio e log."
+    },
+    {
+      "id": "crossfeed",
+      "title": "Crossfeed para fones (bs2b) + inclinação (tilt) no Easy",
+      "mac": "yes",
+      "windows": "yes",
+      "note": "Windows: precisa do motor MyOwnEQ (como o boost)."
     }
   ],
   "variable_keys": [
@@ -338,6 +345,13 @@
         "Open MyOwnEQ",
         "MyOwnEQ is running",
         "Find it in the taskbar corner (click ^ if hidden). Tip: drag the icon next to the clock to keep it visible."
+      ]
+    },
+    {
+      "why": "Motor MyOwnEQ só existe no Windows (crossfeed e boost dependem dele lá)",
+      "mac": [],
+      "windows": [
+        "Crossfeed needs the MyOwnEQ engine (Preferences › Windows audio engine)."
       ]
     }
   ]

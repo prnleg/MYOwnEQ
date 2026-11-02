@@ -328,6 +328,7 @@ public sealed class EasyPanel : StackPanel
         Row(L("Mids"), "1 kHz", m => m.Mids, (m, v) => m.Mids = v);
         Row(L("Clarity"), L("3 kHz presence"), m => m.Clarity, (m, v) => m.Clarity = v);
         Row(L("Treble"), L("8 kHz shelf"), m => m.Treble, (m, v) => m.Treble = v);
+        Row(L("Tilt"), L("warmer ↔ brighter"), m => m.Tilt, (m, v) => m.Tilt = v);
         Children.Add(Ui.Card(L("Tone"), Ui.GDial, tone));
 
         UIElement corr;
@@ -353,7 +354,8 @@ public sealed class EasyPanel : StackPanel
         loudRow.Children.Add(loudLabel);
         loudRow.Children.Add(loudVal);
         loudRow.Children.Add(loud);
-        var comfort = Ui.VStack(8, loudRow, ToggleSwitch.Row(L("Clipping protection"), p.Limiter, on => { p.Limiter = on; edited(); }));
+        var comfort = Ui.VStack(8, loudRow, CrossfeedRow.Build(c, p, edited),
+                                ToggleSwitch.Row(L("Clipping protection"), p.Limiter, on => { p.Limiter = on; edited(); }));
 
         var two = new Grid { Margin = new Thickness(0, 14, 0, 0) };
         two.ColumnDefinitions.Add(new ColumnDefinition());
@@ -365,6 +367,27 @@ public sealed class EasyPanel : StackPanel
         two.Children.Add(a);
         two.Children.Add(b);
         Children.Add(two);
+    }
+}
+
+/// <summary>Headphone crossfeed strength (Easy "Comfort" and Pro "Output"). Needs our
+/// DSP, so on Windows it works with the MyOwnEQ engine (like boost).</summary>
+// parity: crossfeed
+public static class CrossfeedRow
+{
+    public static UIElement Build(AppController c, Profile p, Action edited)
+    {
+        var pick = new PillPicker<Crossfeed>(new[]
+        {
+            (Crossfeed.Off, L("Off")), (Crossfeed.Light, L("Light")),
+            (Crossfeed.Normal, L("Normal")), (Crossfeed.Strong, L("Strong")),
+        }, p.Crossfeed) { HorizontalAlignment = HorizontalAlignment.Left, IsEnabled = c.EngineMode };
+        pick.Changed += v => { p.Crossfeed = v; edited(); };
+        var note = Ui.Secondary(c.EngineMode
+            ? L("Headphones: mixes a little of each side into the other ear, like speakers. Less tiring on long sessions.")
+            : L("Crossfeed needs the MyOwnEQ engine (Preferences › Windows audio engine)."), 11);
+        note.TextWrapping = TextWrapping.Wrap;
+        return Ui.VStack(6, Ui.Text(L("Crossfeed"), 13), pick, note);
     }
 }
 

@@ -291,6 +291,14 @@
     "Diagnostics copied. Paste them in the bug report.": "Diagnóstico copiado. Cole no relato do bug.",
     "Diagnostics has versions, outputs, audio status and recent log lines. No passwords or sync codes. Check it before posting.": "O diagnóstico tem versões, saídas, estado do áudio e as últimas linhas do log. Sem senhas nem códigos de sync. Confira antes de postar.",
     "Help": "Ajuda",
-    "Report a bug": "Reportar um bug"
+    "Report a bug": "Reportar um bug",
+    "Crossfeed": "Crossfeed",
+    "Crossfeed needs the MyOwnEQ engine (Preferences › Windows audio engine).": "O crossfeed precisa do motor MyOwnEQ (Preferências › Motor de áudio do Windows).",
+    "Headphones: mixes a little of each side into the other ear, like speakers. Less tiring on long sessions.": "Fones: mistura um pouco de cada lado no outro ouvido, como caixas de som. Cansa menos em sessões longas.",
+    "Light": "Leve",
+    "Normal": "Normal",
+    "Strong": "Forte",
+    "Tilt": "Inclinação",
+    "warmer ↔ brighter": "mais quente ↔ mais brilhante"
   }
 }

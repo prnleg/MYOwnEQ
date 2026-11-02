@@ -619,11 +619,12 @@ impl Core {
             } => {
                 let cfg = apo::parse(&text);
                 let warnings = cfg.warnings.clone();
+                let provider = if apo::is_rew(&text) { "REW" } else { "AutoEQ" };
                 let p = if as_correction {
                     cfg.into_correction(
                         name.clone(),
                         CorrectionSource {
-                            provider: "AutoEQ".into(),
+                            provider: provider.into(),
                             name,
                         },
                     )

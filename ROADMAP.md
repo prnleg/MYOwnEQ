@@ -29,7 +29,7 @@ Cada item vira um PR próprio. Nada vai direto na `main`.
 
 - **Crossfeed** (estilo bs2b): mistura um pouco de cada lado no outro, menos cansativo em fone.
 - **Ajuste fino do AutoEQ**: inclinação (tilt), grave e agudo por cima da correção. Disponível no modo Easy.
-- **Importar correção do REW**: o REW exporta no formato do Equalizer APO, que já importamos. Testar e documentar.
+- **Importar correção do REW**: o REW exporta no formato do Equalizer APO, que já importa. Testar e documentar ([docs/REW.md](docs/REW.md)).
 
 ## PR 3 — Códigos de compartilhamento
 
