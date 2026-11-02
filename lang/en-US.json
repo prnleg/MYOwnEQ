@@ -291,6 +291,14 @@
     "Diagnostics copied. Paste them in the bug report.": "Diagnostics copied. Paste them in the bug report.",
     "Diagnostics has versions, outputs, audio status and recent log lines. No passwords or sync codes. Check it before posting.": "Diagnostics has versions, outputs, audio status and recent log lines. No passwords or sync codes. Check it before posting.",
     "Help": "Help",
-    "Report a bug": "Report a bug"
+    "Report a bug": "Report a bug",
+    "Crossfeed": "Crossfeed",
+    "Crossfeed needs the MyOwnEQ engine (Preferences › Windows audio engine).": "Crossfeed needs the MyOwnEQ engine (Preferences › Windows audio engine).",
+    "Headphones: mixes a little of each side into the other ear, like speakers. Less tiring on long sessions.": "Headphones: mixes a little of each side into the other ear, like speakers. Less tiring on long sessions.",
+    "Light": "Light",
+    "Normal": "Normal",
+    "Strong": "Strong",
+    "Tilt": "Tilt",
+    "warmer ↔ brighter": "warmer ↔ brighter"
   }
 }

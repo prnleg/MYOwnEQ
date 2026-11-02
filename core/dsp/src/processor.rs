@@ -8,6 +8,7 @@
 //!   resets filter state, so a bad coefficient can never blow up the output.
 
 use crate::biquad::{Band, Coeffs, FilterKind, State};
+use crate::crossfeed::{Bs2b, Crossfeed};
 use crate::params::{EqParams, MAX_BANDS};
 
 pub const MAX_CHANNELS: usize = 8;
@@ -99,6 +100,9 @@ pub struct Processor {
     la_pos: usize,
     /// Whether the lookahead path was active last block (to reset on toggle).
     la_on: bool,
+    /// Crossfeed filter and its fade (0 = off, 1 = fully on).
+    xf: Bs2b,
+    xf_mix: f64,
 }
 
 impl Processor {
@@ -122,6 +126,8 @@ impl Processor {
             la_len: 1,
             la_pos: 0,
             la_on: false,
+            xf: Bs2b::new(params.crossfeed, sample_rate),
+            xf_mix: 0.0,
         };
         p.set_sample_rate(sample_rate);
         p.snap_to_target();
@@ -142,6 +148,7 @@ impl Processor {
         self.smooth_k = 1.0 - (-(SUB_BLOCK as f64) / (SMOOTH_TAU * sample_rate)).exp();
         self.fade_step = SUB_BLOCK as f64 / (FADE_SECS * sample_rate);
         self.release_k = 1.0 - (-1.0 / (LIMIT_RELEASE * sample_rate)).exp();
+        self.xf.design(sample_rate);
         self.la_len = ((LIMIT_LOOKAHEAD * sample_rate).round() as usize).clamp(1, MAX_LOOKAHEAD);
         // Reach ~99% of the needed reduction within the lookahead window.
         self.attack_k = 1.0 - (-5.0 / self.la_len as f64).exp();
@@ -168,6 +175,7 @@ impl Processor {
             }
         }
         self.limiter_gain = 1.0;
+        self.xf.reset();
         self.reset_lookahead();
     }
 
@@ -198,6 +206,14 @@ impl Processor {
         self.preamp = db_to_lin(self.target.preamp_db);
         self.balance = self.target.balance.clamp(-1.0, 1.0);
         self.wet = if self.target.bypass { 0.0 } else { 1.0 };
+        if self.target.crossfeed != Crossfeed::Off {
+            self.xf = Bs2b::new(self.target.crossfeed, self.sample_rate);
+        }
+        self.xf_mix = if self.target.crossfeed == Crossfeed::Off {
+            0.0
+        } else {
+            1.0
+        };
         self.reset();
     }
 
@@ -383,6 +399,9 @@ impl Processor {
         if bad {
             self.reset();
         }
+        if nch == 2 {
+            self.crossfeed(buf, channels, wet0, wet1);
+        }
 
         if self.target.limiter {
             if !self.la_on {
@@ -393,6 +412,43 @@ impl Processor {
         } else {
             self.limiter_gain = 1.0;
             self.la_on = false;
+        }
+    }
+
+    /// Stereo crossfeed with a short fade when it is switched on or off. A level
+    /// change re-designs the (first-order) filters in place.
+    fn crossfeed(&mut self, buf: &mut [f32], channels: usize, wet0: f64, wet1: f64) {
+        let want = self.target.crossfeed;
+        if want != Crossfeed::Off && want != self.xf.level() {
+            let fresh = self.xf_mix == 0.0;
+            let state = self.xf;
+            self.xf = Bs2b::new(want, self.sample_rate);
+            if !fresh {
+                self.xf.take_state(&state);
+            }
+        }
+        let mix0 = self.xf_mix;
+        let mix1 = if want == Crossfeed::Off {
+            (mix0 - self.fade_step).max(0.0)
+        } else {
+            (mix0 + self.fade_step).min(1.0)
+        };
+        self.xf_mix = mix1;
+        if mix0 == 0.0 && mix1 == 0.0 {
+            return;
+        }
+        let n = buf.len() / channels;
+        let inv_n = 1.0 / n as f64;
+        for (f, frame) in buf.chunks_exact_mut(channels).enumerate() {
+            let t = f as f64 * inv_n;
+            let m = lerp(mix0, mix1, t) * lerp(wet0, wet1, t);
+            let (l, r) = (frame[0] as f64, frame[1] as f64);
+            let (cl, cr) = self.xf.process(l, r);
+            frame[0] = (l + (cl - l) * m) as f32;
+            frame[1] = (r + (cr - r) * m) as f32;
+        }
+        if mix1 == 0.0 {
+            self.xf.reset();
         }
     }
 
@@ -504,6 +560,51 @@ mod tests {
         let mut buf = input.clone();
         proc.process(&mut buf, 2);
         assert_eq!(buf, input);
+    }
+
+    /// Left-only bass; right channel silent at the input.
+    fn left_only(frames: usize) -> Vec<f32> {
+        let mut v = sine(100.0, 0.5, frames, 2);
+        for f in v.as_chunks_mut::<2>().0 {
+            f[1] = 0.0;
+        }
+        v
+    }
+
+    #[test]
+    fn crossfeed_fades_in_and_out() {
+        let mut p = params(&[]);
+        let mut proc = Processor::new(SR, p);
+        let mut buf = left_only(9600);
+        proc.process(&mut buf, 2);
+        assert!(
+            buf.as_chunks::<2>().0.iter().all(|f| f[1] == 0.0),
+            "off: right stays silent"
+        );
+
+        p.crossfeed = Crossfeed::Normal;
+        proc.set_params(&p);
+        let mut buf = left_only(24_000);
+        proc.process(&mut buf, 2);
+        assert!(
+            peak_db(&buf, 2, 1, 12_000) > -20.0,
+            "on: bass reaches the right ear"
+        );
+        // Fade-in: the very first frames are still (almost) dry.
+        assert!(buf[1].abs() < 1e-3);
+
+        p.crossfeed = Crossfeed::Off;
+        proc.set_params(&p);
+        let mut buf = left_only(24_000);
+        proc.process(&mut buf, 2);
+        assert!(
+            buf.as_chunks::<2>()
+                .0
+                .iter()
+                .skip(12_000)
+                .all(|f| f[1] == 0.0),
+            "off again"
+        );
     }
 
     #[test]

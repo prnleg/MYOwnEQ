@@ -54,6 +54,7 @@ public sealed class ProPanel : StackPanel
             v => Math.Abs(v) < 0.03 ? "C" : v < 0 ? L("L") + $" {-v * 100:0}%" : L("R") + $" {v * 100:0}%",
             v => { p.Balance = Math.Abs(v) < 0.03 ? 0 : v; edited(false); }), 8, false);
         Ui.Add(output, LabeledSlider(L("Loudness"), 0, 1, p.Loudness, false, v => v == 0 ? L("off") : $"{v * 100:0}%", v => { p.Loudness = v; edited(false); }), 8, false);
+        Ui.Add(output, CrossfeedRow.Build(c, p, () => edited(false)), 8, false);
         Ui.Add(output, Ui.Secondary(L("Windows engine (Equalizer APO) has no limiter: auto preamp keeps it from clipping."), 11.5), 8, false);
         var outCard = Ui.Card(L("Output"), Ui.GVolume, output);
         outCard.Margin = new Thickness(0, 14, 0, 0);

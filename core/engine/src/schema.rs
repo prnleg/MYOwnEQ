@@ -1,7 +1,7 @@
 //! The file the app writes and the plugin reads (`engine.json`). One schema for
 //! both sides so they can't drift.
 
-use myowneq_dsp::{Band, EqParams};
+use myowneq_dsp::{Band, Crossfeed, EqParams};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -26,6 +26,8 @@ pub struct DeviceParams {
     pub limiter: bool,
     #[serde(default)]
     pub bypass: bool,
+    #[serde(default)]
+    pub crossfeed: Crossfeed,
 }
 
 fn yes() -> bool {
@@ -40,6 +42,7 @@ impl DeviceParams {
             balance: p.balance,
             limiter: p.limiter,
             bypass: p.bypass,
+            crossfeed: p.crossfeed,
         }
     }
 
@@ -58,6 +61,7 @@ impl DeviceParams {
         };
         p.limiter = self.limiter || p.preamp_db > 0.0; // never boost without the limiter
         p.bypass = self.bypass;
+        p.crossfeed = self.crossfeed;
         p
     }
 }

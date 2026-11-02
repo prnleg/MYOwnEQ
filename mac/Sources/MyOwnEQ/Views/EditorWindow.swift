@@ -536,6 +536,7 @@ struct EasyPanel: View {
                     row(L("Mids"), \.mids, "1 kHz")
                     row(L("Clarity"), \.clarity, L("3 kHz presence"))
                     row(L("Treble"), \.treble, L("8 kHz shelf"))
+                    row(L("Tilt"), \.tilt, L("warmer ↔ brighter"))
                 }
             }
             HStack(alignment: .top, spacing: 14) {
@@ -557,6 +558,7 @@ struct EasyPanel: View {
                         Text(profile.loudness == 0 ? "off" : "\(Int(profile.loudness * 100))%")
                             .font(.caption.monospacedDigit()).frame(width: 34, alignment: .trailing)
                     }
+                    CrossfeedRow(value: $profile.crossfeed)
                     Toggle(L("Clipping protection"), isOn: $profile.limiter).toggleStyle(.switch).controlSize(.small)
                 }
             }
@@ -575,6 +577,32 @@ struct EasyPanel: View {
                 .contentTransition(.numericText(value: profile.macros[keyPath: kp]))
                 .animation(.snappy, value: profile.macros[keyPath: kp])
                 .frame(width: 66, alignment: .trailing)
+        }
+    }
+}
+
+/// Headphone crossfeed strength (Easy "Comfort" and Pro "Output").
+// parity: crossfeed
+struct CrossfeedRow: View {
+    @Binding var value: Crossfeed
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L("Crossfeed"))
+            PillPicker(selection: $value, options: Crossfeed.allCases.map { ($0, $0.label) })
+            Text(L("Headphones: mixes a little of each side into the other ear, like speakers. Less tiring on long sessions."))
+                .font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+}
+
+extension Crossfeed {
+    var label: String {
+        switch self {
+        case .off: L("Off")
+        case .light: L("Light")
+        case .normal: L("Normal")
+        case .strong: L("Strong")
         }
     }
 }

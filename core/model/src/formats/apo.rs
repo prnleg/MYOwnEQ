@@ -53,9 +53,15 @@ impl ApoConfig {
 
 pub fn parse(text: &str) -> ApoConfig {
     let mut cfg = ApoConfig::default();
+    // REW ("Export filter settings as text") starts with this line and a header
+    // (version, date, notes, equaliser) that isn't config: skip it silently.
+    let rew = is_rew(text);
     for (lineno, raw) in text.lines().enumerate() {
         let line = raw.trim();
         if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        if rew && !is_command(line, &["preamp", "filter"]) {
             continue;
         }
         let Some((cmd, rest)) = line.split_once(':') else {
@@ -79,6 +85,19 @@ pub fn parse(text: &str) -> ApoConfig {
         }
     }
     cfg
+}
+
+/// A REW "filter settings" export (room / speaker correction).
+pub fn is_rew(text: &str) -> bool {
+    text.trim_start().starts_with("Filter Settings file")
+}
+
+/// `line` is `<one of cmds>[ n]: ...` (case-insensitive).
+fn is_command(line: &str, cmds: &[&str]) -> bool {
+    line.split_once(':').is_some_and(|(c, _)| {
+        let c = c.trim().to_ascii_lowercase();
+        cmds.iter().any(|k| c.starts_with(k))
+    })
 }
 
 fn num(tok: Option<&str>) -> Result<f64, String> {
@@ -225,6 +244,19 @@ mod tests {
 
     const AUTOEQ: &str = include_str!("../../tests/fixtures/autoeq_parametric.txt");
     const PEACE: &str = include_str!("../../tests/fixtures/apo_peace.txt");
+
+    #[test]
+    fn parses_rew_export_without_header_noise() {
+        let c = parse(include_str!("../../tests/fixtures/rew_filters.txt"));
+        assert!(c.warnings.is_empty(), "{:?}", c.warnings);
+        assert_eq!(c.preamp_db, None);
+        assert_eq!(c.bands.len(), 6, "None filters are skipped");
+        assert_eq!(c.bands[0], Band::peak(38.5, -6.8, 5.12));
+        assert_eq!(c.bands[2].kind, FilterKind::LowShelf);
+        assert_eq!(c.bands[2].gain_db, 3.0);
+        assert_eq!(c.bands[3].freq, 120.5, "comma decimals");
+        assert!(!c.bands[5].enabled, "OFF filters kept, disabled");
+    }
 
     #[test]
     fn parses_autoeq() {

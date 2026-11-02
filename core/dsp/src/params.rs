@@ -2,6 +2,7 @@
 //! thread through a lock-free SPSC ring buffer.
 
 use crate::biquad::Band;
+use crate::crossfeed::Crossfeed;
 
 /// Upper bound on bands in one chain (AutoEQ base + 31-band graphic + macros fits).
 pub const MAX_BANDS: usize = 64;
@@ -16,6 +17,8 @@ pub struct EqParams {
     pub balance: f64,
     pub limiter: bool,
     pub bypass: bool,
+    /// Headphone crossfeed (stereo only), after the EQ, before the limiter.
+    pub crossfeed: Crossfeed,
 }
 
 impl Default for EqParams {
@@ -27,6 +30,7 @@ impl Default for EqParams {
             balance: 0.0,
             limiter: true,
             bypass: false,
+            crossfeed: Crossfeed::Off,
         }
     }
 }
