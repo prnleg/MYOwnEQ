@@ -47,3 +47,4 @@ em só um dos apps sem justificativa. Veja `CONTRIBUTING.md`.
 | Self-test com prints de cada tela no CI | `selftest` | ⛔ | ✅ | Mac: só build + --check-library no CI por enquanto. |
 | Copiar diagnóstico + reportar bug | `diagnostics` | ✅ | ✅ | Parte comum gerada pelo core (comando diagnostics); cada app adiciona sistema, áudio e log. |
 | Crossfeed para fones (bs2b) + inclinação (tilt) no Easy | `crossfeed` | ✅ | ✅ | Windows: precisa do motor MyOwnEQ (como o boost). |
+| Códigos de compartilhamento MEQ1-… (copiar, colar, QR) | `share-codes` | ✅ | ✅ | Código e QR gerados pelo core (share_code / import_code); sem servidor. |

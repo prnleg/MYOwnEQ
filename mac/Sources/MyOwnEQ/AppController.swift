@@ -247,6 +247,33 @@ final class AppController: ObservableObject {
         }
     }
 
+    // MARK: - share codes
+    // parity: share-codes
+
+    /// Code + QR for a profile (nil if the core refused).
+    func share(_ profile: Profile) -> ShareInfo? {
+        let r = core.command("share_code", ["profile": profile.id])
+        guard let code = r["code"] as? String else { apply(r); return nil }
+        return ShareInfo(name: profile.name, code: code, qr: r["qr"] as? [String] ?? [])
+    }
+
+    /// Import the first MEQ1-… code on the clipboard. Returns the new profile id.
+    @discardableResult
+    func importCodeFromClipboard() -> ID? {
+        let text = NSPasteboard.general.string(forType: .string) ?? ""
+        let r = core.command("import_code", ["text": text])
+        switch r["reason"] as? String {
+        case "not_a_code": notify(L("No MyOwnEQ share code on the clipboard. Copy one (MEQ1-…) and try again."), error: true); return nil
+        case "damaged": notify(L("That share code is damaged or incomplete. Copy it again."), error: true); return nil
+        case "newer": notify(L("That share code is from a newer MyOwnEQ. Update the app."), error: true); return nil
+        default: apply(r)
+        }
+        guard let id = r["imported_id"] as? String else { return nil }
+        let name = state?.library.profiles.first { $0.id == id }?.name ?? ""
+        notify(L("Imported “%@” from a share code", name))
+        return id
+    }
+
     func exportAPO(_ profile: ID) -> String? {
         core.command("export_apo", ["profile": profile])["text"] as? String
     }

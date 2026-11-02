@@ -254,7 +254,10 @@ public sealed class MainWindow : Window
         }
         var add = Ui.IconButton(Ui.GAdd, NewProfile, L("New profile"), t.InkBrush(), 14);
         add.Margin = new Thickness(6, 0, 0, 0);
-        var searchRow = Ui.Spread(searchGrid, add);
+        var paste = Ui.IconButton(Ui.GPaste, () => { if (_c.ImportCodeFromClipboard() is { } id) Navigate(Nav.Profile(id)); },
+                                  L("Import a share code from the clipboard"), t.InkBrush(), 14);
+        paste.Margin = new Thickness(4, 0, 0, 0);
+        var searchRow = Ui.Spread(searchGrid, Ui.HStack(0, paste, add));
         searchRow.Margin = new Thickness(0, 12, 0, 4);
         col.Children.Add(searchRow);
 
@@ -374,6 +377,7 @@ public sealed class MainWindow : Window
         Item(L("Rename…"), () => { if (Dialogs.AskName(this, L("Rename “%@”", p.Name), p.Name) is { } n) _c.Rename(p.Id, n); }, !preset);
         Item(fav ? L("Remove from Favorites") : L("Add to Favorites"), () => _c.ToggleFavorite(p.Id));
         Item(L("Duplicate"), () => Duplicate(p));
+        Item(L("Share…"), () => Dialogs.Share(this, _c, p));
         Item(L("Export Equalizer APO…"), () => Export(p));
         m.Items.Add(new Separator());
         // parity: delete-confirm

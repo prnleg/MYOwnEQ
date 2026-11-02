@@ -299,6 +299,19 @@
     "Normal": "Normal",
     "Strong": "Strong",
     "Tilt": "Tilt",
-    "warmer ↔ brighter": "warmer ↔ brighter"
+    "warmer ↔ brighter": "warmer ↔ brighter",
+    "Anyone with MyOwnEQ can paste this code to get the same EQ. No account, no server.": "Anyone with MyOwnEQ can paste this code to get the same EQ. No account, no server.",
+    "Copy code": "Copy code",
+    "Done": "Done",
+    "Import a share code from the clipboard": "Import a share code from the clipboard",
+    "Imported “%@” from a share code": "Imported “%@” from a share code",
+    "QR code": "QR code",
+    "Share code copied": "Share code copied",
+    "Share code from the clipboard": "Share code from the clipboard",
+    "Share “%@”": "Share “%@”",
+    "Share…": "Share…",
+    "No MyOwnEQ share code on the clipboard. Copy one (MEQ1-…) and try again.": "No MyOwnEQ share code on the clipboard. Copy one (MEQ1-…) and try again.",
+    "That share code is damaged or incomplete. Copy it again.": "That share code is damaged or incomplete. Copy it again.",
+    "That share code is from a newer MyOwnEQ. Update the app.": "That share code is from a newer MyOwnEQ. Update the app."
   }
 }

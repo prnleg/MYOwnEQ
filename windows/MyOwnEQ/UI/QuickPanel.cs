@@ -221,6 +221,9 @@ public sealed class QuickPanel : Window
         autoeq.Click += (_, _) => ImportDialog.Run(_c, true);
         var apo = new MenuItem { Header = L("Equalizer APO / Peace config…") };
         apo.Click += (_, _) => ImportDialog.Run(_c, false);
+        var code = new MenuItem { Header = L("Share code from the clipboard") };
+        code.Click += (_, _) => _c.ImportCodeFromClipboard();
+        menu.Items.Add(code);
         menu.Items.Add(autoeq);
         menu.Items.Add(apo);
         b.ContextMenu = menu;

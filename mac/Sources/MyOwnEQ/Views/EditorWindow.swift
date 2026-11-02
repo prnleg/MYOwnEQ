@@ -115,6 +115,7 @@ struct Sidebar: View {
     @Binding var nav: Nav?
     @Binding var search: String
     @AppStorage("showPresets") private var showPresets = true
+    @State private var sharing: ShareInfo?
 
     var body: some View {
         let s = c.state
@@ -168,9 +169,16 @@ struct Sidebar: View {
         .searchable(text: $search, placement: .sidebar, prompt: L("Search profiles"))
         .toolbar {
             ToolbarItem {
+                Button {
+                    if let id = c.importCodeFromClipboard() { nav = .profile(id) }
+                } label: { Image(systemName: "square.and.arrow.down.on.square") }
+                    .help(L("Import a share code from the clipboard"))
+            }
+            ToolbarItem {
                 Button { add() } label: { Image(systemName: "plus") }.help(L("New profile"))
             }
         }
+        .sheet(item: $sharing) { ShareSheet(info: $0) }
     }
 
     private func row(_ p: Profile) -> some View {
@@ -183,6 +191,7 @@ struct Sidebar: View {
                     c.toggleFavorite(p.id)
                 }
                 Button(L("Duplicate")) { duplicate(p) }
+                Button(L("Share…")) { sharing = c.share(p) }
                 Button(L("Export Equalizer APO…")) { export(p) }
                 Divider()
                 // parity: delete-confirm

@@ -35,7 +35,7 @@ public static class Ui
         GStar = "\uE734", GStarFill = "\uE735", GSearch = "\uE721", GDelete = "\uE74D", GCheck = "\uE73E",
         GShield = "\uEA18", GEar = "\uE7F5", GChevron = "\uE76C", GWave = "\uE9D9", GSpeaker = "\uE7F5",
         GDial = "\uE9E9", GSparkle = "\uE945", GGlobe = "\uE774", GLink = "\uE71B", GWarning = "\uE7BA",
-        GDownload = "\uE896", GInfo = "\uE946", GPhoto = "\uEB9F", GDoc = "\uE8A5", GPencilSave = "\uE74E", GCopy = "\uE8C8";
+        GDownload = "\uE896", GInfo = "\uE946", GPhoto = "\uEB9F", GDoc = "\uE8A5", GPencilSave = "\uE74E", GCopy = "\uE8C8", GPaste = "\uE77F";
 
     // ---- text
 

@@ -9,6 +9,7 @@ pub mod library;
 pub mod presets;
 pub mod profile;
 pub mod rules;
+pub mod share;
 
 pub use device::{DeviceGroup, DeviceKey, DeviceKind, MachineId, MAX_BOOST_DB};
 pub use library::{Library, LibraryError, SCHEMA_VERSION};
