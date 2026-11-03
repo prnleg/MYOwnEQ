@@ -65,6 +65,12 @@ struct MyOwnEQApp: App {
             }
         }
         _theme = StateObject(wrappedValue: ts)
+        // Dev helper: `MYOWNEQ_DATA_DIR=/tmp/x MyOwnEQ --screenshots <out dir> [<images dir>]`.
+        if let i = args.firstIndex(of: "--screenshots"), args.count > i + 1 {
+            let out = URL(fileURLWithPath: args[i + 1])
+            let images = args.count > i + 2 ? URL(fileURLWithPath: args[i + 2]) : nil
+            DispatchQueue.main.async { MainActor.assumeIsolated { Screenshots.run(out: out, images: images, c: c, theme: ts) } }
+        }
     }
 
     var body: some Scene {

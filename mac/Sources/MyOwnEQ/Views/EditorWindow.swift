@@ -17,6 +17,10 @@ struct EditorWindow: View {
     /// editor (and an in-progress drag) survives the switch to the copy.
     @State private var forks: [ID: ID] = [:]
 
+    init(initialNav: Nav? = nil) {
+        _nav = State(initialValue: initialNav)
+    }
+
     private func editorKey(_ id: ID) -> ID {
         var k = id
         while let p = forks[k] { k = p }
@@ -167,7 +171,7 @@ struct Sidebar: View {
             }
         }
         .listStyle(.sidebar)
-        .searchable(text: $search, placement: .sidebar, prompt: L("Search profiles"))
+        .modifier(SidebarSearch(search: $search))
         .toolbar {
             ToolbarItem {
                 Button {
@@ -698,4 +702,19 @@ func askName(_ title: String, current: String) -> String? {
     guard a.runModal() == .alertFirstButtonReturn else { return nil }
     let v = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
     return v.isEmpty ? nil : v
+}
+
+/// Sidebar search field. Screenshot mode: no search field and an opaque sidebar (the
+/// translucent sidebar material can't be captured from inside the app).
+private struct SidebarSearch: ViewModifier {
+    @EnvironmentObject var theme: ThemeStore
+    @Binding var search: String
+
+    func body(content: Content) -> some View {
+        if AppController.screenshotMode {
+            content.scrollContentBackground(.hidden).background(theme.current.panelColor)
+        } else {
+            content.searchable(text: $search, placement: .sidebar, prompt: L("Search profiles"))
+        }
+    }
 }
