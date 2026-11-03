@@ -2,6 +2,7 @@
 //! built-in presets and import/export formats.
 
 pub mod assets;
+pub mod autoeq;
 pub mod device;
 pub mod edit;
 pub mod formats;

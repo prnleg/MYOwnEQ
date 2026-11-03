@@ -25,7 +25,7 @@ Coisas novas vão pro [ROADMAP.md](ROADMAP.md).
 
 ## O que ele faz (ou deveria fazer, calma lá tbm) 💥
 - 🎛️ **Modo Pro**: EQ paramétrico e gráfico (10/31 bandas), espectro ao vivo, a banda que vc tá mexendo fica destacada mostrando quanto mudou, limitador, balanço L/R e loudness
-- 😎 **Modo Easy (Tetinha)**: Grave / Médio / Clareza / Agudo e pronto. Presets, correção de fone pelo AutoEQ, favoritos só dos fones conectados, tudo pela barra de menu
+- 😎 **Modo Easy (Tetinha)**: Grave / Médio / Clareza / Agudo e pronto. Presets, correção de fone pelo AutoEQ (procura teu fone pelo nome dentro do app, ~9 mil modelos), favoritos só dos fones conectados, tudo pela barra de menu
 - 🎧 **Perfil por fone + regra por app**: KZ no padrão, abriu o CS2 → vira **FPS** sozinho 🔫. Fechou o jogo → volta. Momentum 4 nem fica sabendo
 - 🔄 **Sync**: liga o "KZ do Mac" com o "KZ do PC" e eles viram um só. Trocou num, trocou no outro
 - 📥 **Importa** teus presets do eqMac e do Equalizer APO / Peace. Não perde NADA

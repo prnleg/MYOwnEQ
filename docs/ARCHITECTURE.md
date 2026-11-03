@@ -102,6 +102,11 @@ plugin ──escreve──► engine-status-<saída>.json (batimento: carregado 
 - **Windows usa o Equalizer APO como hospedeiro.** Com os filtros dele (modo clássico)
   não há limitador nem boost; com o motor MyOwnEQ, o nosso DSP roda dentro dele e o
   boost funciona. Um APO 100% nosso exigiria admin, por isso ficou de fora.
+- **AutoEQ direto do GitHub do projeto.** O core baixa `results/INDEX.md` (~850 KB) na
+  primeira busca e de novo a cada 7 dias, em segundo plano; cada correção escolhida é
+  baixada uma vez e fica em `<dados>/autoeq/`. Só caminhos que estão na lista são
+  baixados (nada de URL arbitrária). Sem servidor nosso. A UI não trava: os comandos
+  respondem `"loading"` e a tela pergunta de novo.
 - **Vidro no Windows** é aproximado: o WPF não desfoca o que está atrás de um elemento.
 - **Interfaces nativas** (SwiftUI, WPF, GTK): mais trabalho que uma interface única, mas
   é o que dá cara de app do sistema. A paridade é garantida por regra + core comum.

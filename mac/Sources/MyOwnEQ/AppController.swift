@@ -250,6 +250,50 @@ final class AppController: ObservableObject {
         }
     }
 
+    // MARK: - AutoEQ headphone search
+    // parity: autoeq-search
+
+    func autoEqSearch(query: String, device: String? = nil) -> AutoEqSearchResult {
+        var args: [String: Any] = ["query": query]
+        if let device { args["device"] = device }
+        let r = core.command("autoeq_search", args)
+        let index = r["index"] as? [String: Any] ?? [:]
+        let models = (r["results"] as? [[String: Any]] ?? []).map { m in
+            AutoEqModel(
+                name: m["name"] as? String ?? "?",
+                kind: m["kind"] as? String ?? "",
+                measurements: (m["measurements"] as? [[String: Any]] ?? []).map {
+                    AutoEqMeasurement(label: $0["label"] as? String ?? "", path: $0["path"] as? String ?? "")
+                })
+        }
+        return AutoEqSearchResult(
+            query: r["query"] as? String ?? query,
+            state: index["state"] as? String ?? "error",
+            count: index["count"] as? Int ?? 0,
+            error: index["error"] as? String ?? (r["ok"] as? Bool == false ? r["error"] as? String : nil),
+            results: models)
+    }
+
+    func autoEqRefresh() { _ = core.command("autoeq_refresh") }
+
+    func autoEqFetch(path: String, create: Bool) -> AutoEqFetchResult {
+        let r = core.command("autoeq_fetch", ["path": path, "create": create])
+        switch r["state"] as? String {
+        case "loading": return .loading
+        case "ready":
+            if create, let id = r["imported_id"] as? String {
+                apply(r)
+                return .created(id)
+            }
+            guard let bands = decode([Band].self, r["correction"]),
+                  let source = decode(CorrectionSource.self, r["source"])
+            else { return .failed("bad reply") }
+            return .ready(bands, source)
+        default:
+            return .failed(r["error"] as? String ?? "?")
+        }
+    }
+
     // MARK: - control channel (CLI, links, other apps)
     // parity: control
 

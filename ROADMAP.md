@@ -37,6 +37,25 @@ Cada item vira um PR próprio. Nada vai direto na `main`.
   compactadas, ~100 caracteres para 10 bandas). Sem servidor, sem custo.
 - Copiar, colar para importar, QR code (QR code meio foda pq não tem muito uso, mas é maneiro kkkkk).
 
+## PR 4 — Busca do AutoEQ
+
+- Achar o fone pelo nome dentro do app (~9 mil modelos) e aplicar a correção em um clique.
+  A busca já começa com o nome da saída atual ("Momentum 4 Headphones" → "momentum 4").
+- Escolher **quem mediu** (oratory1990, crinacle, Rtings…), o mais confiável primeiro.
+- Lista e arquivos vêm do GitHub do AutoEQ e ficam em cache: depois de usado, funciona
+  offline. A lista se atualiza sozinha toda semana.
+- **Escolher o alvo** (Harman, IEF, neutro…) fica para depois: cada resultado do AutoEQ já
+  vem ajustado para um alvo; trocar exige ajustar a curva nós mesmos a partir da medição.
+
+## Próximos (app principal)
+
+- Editor de tema dentro do app + imagem de fundo + códigos de tema (`MEQT-…`).
+- Aba Comunidade (EQs e temas do site), depois do site estar no ar.
+- EQ separado para esquerdo/direito (modo Pro).
+- Atalhos de teclado globais (trocar perfil, ligar/desligar).
+- Volume automático (auto gain).
+- Escolher o alvo do AutoEQ (ver PR 4).
+
 ## Extensões (futuro)
 
 Ver "Extensões" em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Ordem sugerida, porque a primeira é a base das outras:
@@ -47,6 +66,9 @@ Ver "Extensões" em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Ordem sugerida
 2. **Controle pelo celular**: página web simples mandando comandos pelo mesmo canal (aqui que entraria o uso do QR Code por exemplo, massa né?).
 3. **EQ do microfone**: no Windows pelo Equalizer APO nos dispositivos de captura (é fácil);
    no Mac precisa de um dispositivo de áudio virtual (driver, pede admin), por isso fica só dentro da extensão.
+   Junto: medir com o microfone para gerar correção automática.
+4. **Volume/EQ por app** (Mac primeiro, pelos process taps).
+5. **Convolver** (respostas a impulso): correção de sala e surround virtual.
 
 ## CI
 
@@ -63,4 +85,4 @@ Ver "Extensões" em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Ordem sugerida
 - **Linux**: plano em [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Alternativa mais barata: exportar/importar perfis no formato do EasyEffects e sincronizar.
 - **Motor MyOwnEQ como padrão no Windows**: quando provar estável na instalação do zero.
 - **Assinatura de código**: sem conta paga da Apple; fica aberto para a comunidade (sou pobre, n quero pagar 100 doletas por ano).
-- **Token do sync no Keychain** (hoje em arquivo) e busca do AutoEQ dentro do app.
+- **Token do sync no Keychain** (hoje em arquivo).

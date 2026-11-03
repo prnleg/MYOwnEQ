@@ -144,7 +144,7 @@ public sealed class ProfileEditor : ScrollViewer
         bool pro = Ui.Store.Settings.EditorPro;
         FrameworkElement panel = pro
             ? new ProPanel(_c, _draft, _selectedBand, structural => Edited(structural), i => { _selectedBand = i; if (_curve is not null) _curve.Selected = i; })
-            : new EasyPanel(_c, _draft, () => Edited());
+            : new EasyPanel(_c, _draft, structural => Edited(structural));
         _panelHost.Content = panel;
         if (animate)
         {
@@ -304,8 +304,9 @@ public sealed class ProfileEditor : ScrollViewer
 // parity: easy-panel
 public sealed class EasyPanel : StackPanel
 {
-    public EasyPanel(AppController c, Profile p, Action edited)
+    public EasyPanel(AppController c, Profile p, Action<bool> editedAny)
     {
+        void edited() => editedAny(false);
         var tone = Ui.VStack(10);
         void Row(string name, string hint, Func<Macros, double> get, Action<Macros, double> set)
         {
@@ -331,15 +332,7 @@ public sealed class EasyPanel : StackPanel
         Row(L("Tilt"), L("warmer ↔ brighter"), m => m.Tilt, (m, v) => m.Tilt = v);
         Children.Add(Ui.Card(L("Tone"), Ui.GDial, tone));
 
-        UIElement corr;
-        if (p.CorrectionSource is { } src)
-            corr = Ui.VStack(6, Ui.Text($"{src.Provider}: {src.Name}", 13, FontWeights.SemiBold),
-                               Ui.Secondary(L("%@ filters, applied before your tone", p.Correction.Count)),
-                               Ui.Button(L("Remove"), () => { p.Correction.Clear(); p.CorrectionSource = null; edited(); }));
-        else
-            corr = Ui.VStack(8, Ui.Secondary(L("Import an AutoEQ ParametricEQ.txt to make your headphones sound neutral."), 12.5),
-                               Ui.Button(L("Import AutoEQ…"), () => ImportDialog.Run(c, true)));
-        foreach (FrameworkElement fe in ((Panel)corr).Children) fe.HorizontalAlignment = HorizontalAlignment.Left;
+        var corr = CorrectionControls.Build(c, p, () => editedAny(true));
 
         var loudVal = Ui.Text(p.Loudness == 0 ? L("off") : $"{p.Loudness * 100:0}%", 12);
         loudVal.Width = 40;
@@ -367,6 +360,34 @@ public sealed class EasyPanel : StackPanel
         two.Children.Add(a);
         two.Children.Add(b);
         Children.Add(two);
+    }
+}
+
+/// <summary>Headphone correction: what's applied + find (AutoEQ search) / remove
+/// (Mac: CorrectionControls). <paramref name="changed"/> rebuilds the panel.</summary>
+// parity: autoeq-search
+public static class CorrectionControls
+{
+    public static Panel Build(AppController c, Profile p, Action changed)
+    {
+        void Find() => AutoEqDialog.Run(Application.Current.Windows.OfType<MainWindow>().FirstOrDefault(), c, p, changed);
+        Panel corr;
+        if (p.Correction.Count > 0)
+        {
+            var src = p.CorrectionSource;
+            corr = Ui.VStack(6, Ui.Text(src is null ? L("Imported") : $"{src.Provider}: {src.Name}", 13, FontWeights.SemiBold),
+                               Ui.Secondary(L("%@ filters, applied before your tone", p.Correction.Count)),
+                               Ui.HStack(8, Ui.Button(L("Change…"), Find),
+                                            Ui.Button(L("Remove"), () => { p.Correction.Clear(); p.CorrectionSource = null; changed(); })));
+        }
+        else
+        {
+            var hint = Ui.Secondary(L("Pick your headphones to make them sound neutral."), 12.5);
+            hint.TextWrapping = TextWrapping.Wrap;
+            corr = Ui.VStack(8, hint, Ui.Button(L("Find headphones…"), Find, prominent: true, glyph: Ui.GSearch));
+        }
+        foreach (FrameworkElement fe in corr.Children) fe.HorizontalAlignment = HorizontalAlignment.Left;
+        return corr;
     }
 }
 

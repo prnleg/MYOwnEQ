@@ -225,6 +225,27 @@ pub enum Command {
         #[serde(default)]
         sections: Vec<DiagSection>,
     },
+    /// Search the AutoEQ headphone list. `device`: an output name to turn into the
+    /// query when `query` is empty. Downloads/refreshes the list in the background
+    /// (`index.state` = "loading"/"updating": ask again shortly).
+    AutoeqSearch {
+        #[serde(default)]
+        query: String,
+        #[serde(default)]
+        device: Option<String>,
+        #[serde(default = "default_autoeq_limit")]
+        limit: usize,
+    },
+    /// Download the AutoEQ list again now.
+    AutoeqRefresh,
+    /// A result's correction (`path` from `autoeq_search`). Answers `state`:
+    /// "loading" (ask again shortly), "error", or "ready" with `correction` +
+    /// `source` (for the profile being edited). `create`: also add it as a new profile.
+    AutoeqFetch {
+        path: String,
+        #[serde(default)]
+        create: bool,
+    },
     /// Language packs from `dirs` + which one to use for `choice` / `preferred`.
     LoadLangs {
         dirs: Vec<String>,
@@ -262,6 +283,10 @@ pub struct DiagSection {
     pub lines: Vec<String>,
 }
 
+fn default_autoeq_limit() -> usize {
+    40
+}
+
 fn default_discover_ms() -> u64 {
     1500
 }
@@ -296,6 +321,8 @@ impl Command {
                 | Command::LoadLangs { .. }
                 | Command::Diagnostics { .. }
                 | Command::ShareCode { .. }
+                | Command::AutoeqSearch { .. }
+                | Command::AutoeqRefresh
                 // These run their requests through `command()`, which records sync itself.
                 | Command::ControlConfigure { .. }
                 | Command::ControlTick
@@ -351,6 +378,7 @@ pub struct Core {
     eq_stash: std::collections::HashMap<Id, myowneq_model::edit::Stash>,
     control_enabled: bool,
     control: Option<crate::control::ControlServer>,
+    autoeq: crate::autoeq::AutoEq,
 }
 
 impl Core {
@@ -386,6 +414,7 @@ impl Core {
             .filter(|l| l.machine.0 == machine)
             .unwrap_or_else(|| LocalState::new(MachineId(machine.into())));
         let sync = SyncGlue::load(data_dir.clone(), machine, &lib);
+        let autoeq = crate::autoeq::AutoEq::new(data_dir.as_ref().map(|d| d.join("autoeq")));
         let mut core = Core {
             data_dir,
             lib,
@@ -410,6 +439,7 @@ impl Core {
             eq_stash: std::collections::HashMap::new(),
             control_enabled: lf.control,
             control: None,
+            autoeq,
         };
         core.start_control();
         // Loading heals presets (Library::restore_presets); persist that now
@@ -764,6 +794,16 @@ impl Core {
             Diagnostics { sections } => {
                 return Ok(json!({ "ok": true, "text": self.diagnostics(&sections) }))
             }
+            AutoeqSearch {
+                query,
+                device,
+                limit,
+            } => return Ok(self.autoeq_search(query, device, limit)),
+            AutoeqRefresh => {
+                self.autoeq.refresh();
+                return Ok(self.autoeq_search(String::new(), None, 0));
+            }
+            AutoeqFetch { path, create } => return Ok(self.autoeq_fetch(&path, create)),
             SyncConfigure { config } => self.sync.apply_config(config),
             SyncTick => {
                 if !self.sync.tick(&mut self.lib) {
@@ -1168,6 +1208,102 @@ impl Core {
     }
 
     /// `name`, or `name (2)`, `name (3)`… if a profile already has it.
+    #[cfg(test)]
+    fn autoeq_cache_file(&self, path: &str) -> Option<PathBuf> {
+        self.autoeq.cache_file(path)
+    }
+
+    fn autoeq_search(&mut self, query: String, device: Option<String>, limit: usize) -> Value {
+        use myowneq_model::autoeq;
+        let query = match (query.trim(), device) {
+            ("", Some(d)) => autoeq::query_from_device(&d),
+            (q, _) => q.to_string(),
+        };
+        let (entries, job, fetched) = self.autoeq.index();
+        let state = match (&entries, &job) {
+            (Some(_), Some(crate::autoeq::Job::Loading)) => "updating",
+            (Some(_), _) => "ready",
+            (None, Some(crate::autoeq::Job::Failed(_))) => "error",
+            (None, _) => "loading",
+        };
+        let error = match &job {
+            Some(crate::autoeq::Job::Failed(e)) => Some(e.clone()),
+            _ => None,
+        };
+        let updated = fetched
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs());
+        let results: Vec<Value> = entries
+            .as_ref()
+            .map(|e| autoeq::search(e, &query, limit.min(200)))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| {
+                json!({
+                    "name": m.name,
+                    "kind": m.kind,
+                    "measurements": m.measurements.iter().map(|e| json!({
+                        "label": autoeq::source_label(e),
+                        "path": e.path,
+                    })).collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        json!({
+            "ok": true,
+            "query": query,
+            "index": {
+                "state": state,
+                "count": entries.as_ref().map_or(0, |e| e.len()),
+                "updated": updated,
+                "error": error,
+            },
+            "results": results,
+        })
+    }
+
+    fn autoeq_fetch(&mut self, path: &str, create: bool) -> Value {
+        use crate::autoeq::Fetch;
+        let text = match self.autoeq.fetch(path) {
+            Fetch::Loading => return json!({ "ok": true, "state": "loading" }),
+            Fetch::Failed(e) => return json!({ "ok": false, "state": "error", "error": e }),
+            Fetch::Ready(t) => t,
+        };
+        let entry = self
+            .autoeq
+            .index()
+            .0
+            .and_then(|e| e.iter().find(|x| x.path == path).cloned());
+        let Some(entry) = entry else {
+            return json!({ "ok": false, "state": "error", "error": "not in the AutoEQ list" });
+        };
+        let source = CorrectionSource {
+            provider: "AutoEQ".into(),
+            name: format!(
+                "{} ({})",
+                entry.name,
+                myowneq_model::autoeq::source_label(&entry)
+            ),
+        };
+        let cfg = apo::parse(&text);
+        let warnings = cfg.warnings.clone();
+        let p = cfg.into_correction(self.unique_name(&entry.name), source.clone());
+        if p.correction.is_empty() {
+            return json!({ "ok": false, "state": "error", "error": "the AutoEQ file has no filters" });
+        }
+        if !create {
+            return json!({
+                "ok": true, "state": "ready",
+                "correction": p.correction, "source": source, "warnings": warnings,
+            });
+        }
+        let id = p.id;
+        self.lib.upsert_profile(p);
+        self.save_library();
+        self.refresh();
+        self.state_with(json!({ "state": "ready", "imported_id": id, "source": source }))
+    }
+
     fn unique_name(&self, name: &str) -> String {
         let taken = |n: &str| self.lib.profiles.iter().any(|p| p.name == n);
         let base = if name.trim().is_empty() {
@@ -1724,6 +1860,66 @@ mod tests {
         assert!(!dir.join("control.json").exists());
         drop(core);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn autoeq_search_and_install_from_cache() {
+        let dir = std::env::temp_dir().join(format!("meq-autoeq-{}", uuid::Uuid::new_v4()));
+        let mut core = Core::new(Some(dir.clone()), "m1");
+        core.autoeq.seed(
+            "- [Sennheiser HD 600](./oratory1990/over-ear/Sennheiser%20HD%20600) by oratory1990\n\
+             - [Sennheiser HD 600](./crinacle/GRAS%2043AG-7%20over-ear/Sennheiser%20HD%20600) by crinacle on GRAS 43AG-7\n\
+             - [Sony WH-1000XM4](./Rtings/over-ear/Sony%20WH-1000XM4) by Rtings\n",
+        );
+        let r = cmd(
+            &mut core,
+            json!({"cmd": "autoeq_search", "device": "Sennheiser HD 600 Headphones"}),
+        );
+        assert_eq!(r["index"]["state"], "ready");
+        assert_eq!(r["query"], "sennheiser hd 600");
+        assert_eq!(r["results"][0]["name"], "Sennheiser HD 600");
+        assert_eq!(
+            r["results"][0]["measurements"][1]["label"],
+            "crinacle · GRAS 43AG-7"
+        );
+        let path = r["results"][0]["measurements"][0]["path"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        // Not in the list: refused without touching the network.
+        let r = cmd(
+            &mut core,
+            json!({"cmd": "autoeq_fetch", "path": "../../etc/passwd"}),
+        );
+        assert_eq!(r["state"], "error");
+
+        // Cached file (as if downloaded before): ready at once, works offline.
+        let file = core.autoeq_cache_file(&path).unwrap();
+        std::fs::create_dir_all(file.parent().unwrap()).unwrap();
+        std::fs::write(&file, "Preamp: -6.3 dB\nFilter 1: ON LSC Fc 105 Hz Gain 6.5 dB Q 0.70\nFilter 2: ON PK Fc 125 Hz Gain -2.7 dB Q 0.55\n").unwrap();
+        let r = cmd(&mut core, json!({"cmd": "autoeq_fetch", "path": path}));
+        assert_eq!(r["state"], "ready");
+        assert_eq!(r["correction"].as_array().unwrap().len(), 2);
+        assert_eq!(r["source"]["name"], "Sennheiser HD 600 (oratory1990)");
+        let n = core.lib.profiles.len();
+        assert_eq!(
+            n,
+            core.lib.profiles.len(),
+            "fetch without create adds nothing"
+        );
+
+        let r = cmd(
+            &mut core,
+            json!({"cmd": "autoeq_fetch", "path": path, "create": true}),
+        );
+        assert_eq!(r["state"], "ready");
+        let id: Id = serde_json::from_value(r["imported_id"].clone()).unwrap();
+        let p = core.lib.profile(id).unwrap();
+        assert_eq!(p.name, "Sennheiser HD 600");
+        assert_eq!(p.correction.len(), 2);
+        assert_eq!(core.lib.profiles.len(), n + 1);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

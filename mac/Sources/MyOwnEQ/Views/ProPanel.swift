@@ -89,15 +89,18 @@ struct ProPanel: View {
                 }
             }
 
-            if !profile.correction.isEmpty {
-                Card(title: L("Correction · %@ · before your bands", profile.correctionSource?.name ?? L("imported")), icon: "checkmark.seal") {
-                    VStack(alignment: .leading, spacing: 2) {
-                        ForEach(Array(profile.correction.enumerated()), id: \.offset) { _, b in
-                            Text("\(b.kind.label)  \(fmtHz(b.freq))  \(String(format: "%+.1f dB  Q %.2f", b.gainDb, b.q))")
-                                .font(.caption.monospaced()).foregroundStyle(b.enabled ? .primary : .secondary)
+            Card(title: profile.correction.isEmpty ? L("Headphone correction") : L("Correction · %@ · before your bands", profile.correctionSource?.name ?? L("imported")), icon: "checkmark.seal") {
+                VStack(alignment: .leading, spacing: 8) {
+                    if !profile.correction.isEmpty {
+                        VStack(alignment: .leading, spacing: 2) {
+                            ForEach(Array(profile.correction.enumerated()), id: \.offset) { _, b in
+                                Text("\(b.kind.label)  \(fmtHz(b.freq))  \(String(format: "%+.1f dB  Q %.2f", b.gainDb, b.q))")
+                                    .font(.caption.monospaced()).foregroundStyle(b.enabled ? .primary : .secondary)
+                            }
                         }
-                    }.frame(maxWidth: .infinity, alignment: .leading)
-                }
+                    }
+                    CorrectionControls(profile: $profile)
+                }.frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
