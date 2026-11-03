@@ -3,6 +3,8 @@ VAI TOMA NO ** CANSEI DESSES EQ PAGOS ❌🖕
 
 Equalizador **DE GRAÇA**, **CÓDIGO ABERTO**, pro sistema **INTEIRO**, no **Mac** e no **Windows**, e o perfil sincroniza entre os dois sozinho. Mexeu no Mac, o PC já tá igual. Sem assinatura, sem "versão PRO", sem trial de 7 dias. PAROU COM ESSA P***A 🔥
 
+(Po tentei deixar igual o Mac mas o windows consegue deixar as coisas feias)
+
 ## PRA QUE CRIAR ESSA P***A??? 😤
 - Pagar pra mexer no GRAVE do **MEU** fone? 🤡
 - Um app no Mac, outro no Windows, e não se conversam???? 🙄
