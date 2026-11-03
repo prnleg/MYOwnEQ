@@ -257,7 +257,11 @@ public sealed class MainWindow : Window
         var paste = Ui.IconButton(Ui.GPaste, () => { if (_c.ImportCodeFromClipboard() is { } id) Navigate(Nav.Profile(id)); },
                                   L("Import a share code from the clipboard"), t.InkBrush(), 14);
         paste.Margin = new Thickness(4, 0, 0, 0);
-        var searchRow = Ui.Spread(searchGrid, Ui.HStack(0, paste, add));
+        // parity: autoeq-search
+        var headphones = Ui.IconButton(Ui.GHeadphones, () => { if (AutoEqDialog.Run(this, _c, null) is { } id) Navigate(Nav.Profile(id)); },
+                                       L("New profile for your headphones (AutoEQ)"), t.InkBrush(), 14);
+        headphones.Margin = new Thickness(4, 0, 0, 0);
+        var searchRow = Ui.Spread(searchGrid, Ui.HStack(0, headphones, paste, add));
         searchRow.Margin = new Thickness(0, 12, 0, 4);
         col.Children.Add(searchRow);
 

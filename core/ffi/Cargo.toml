@@ -17,6 +17,8 @@ myowneq-update = { path = "../update" }
 myowneq-server = { path = "../../server" }
 base64.workspace = true
 qrcode.workspace = true
+ureq.workspace = true
+native-tls.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 uuid.workspace = true

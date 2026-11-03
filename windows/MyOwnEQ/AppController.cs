@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks;
 using System.Windows.Threading;
@@ -545,6 +546,41 @@ public sealed class AppController : IDisposable
             Notify(reply["imported_id"] is not null ? UI.Loc.L("Imported “%@” from a share code", name) : UI.Loc.L("Now playing: %@", name));
         else if (reply?["enabled"] is { } en)
             Notify(en.GetValue<bool>() ? UI.Loc.L("EQ on") : UI.Loc.L("EQ off"));
+    }
+
+    // ---------------------------------------------------------------- AutoEQ search
+    // parity: autoeq-search
+
+    public UI.AutoEqSearchResult AutoEqSearch(string query, string? device = null)
+    {
+        var r = Core.Command("autoeq_search", new { query, device });
+        var index = r["index"] as JsonObject;
+        return new UI.AutoEqSearchResult
+        {
+            Query = r["query"]?.GetValue<string>() ?? query,
+            State = index?["state"]?.GetValue<string>() ?? "error",
+            Count = index?["count"]?.GetValue<int>() ?? 0,
+            Error = index?["error"]?.GetValue<string>() ?? (r["ok"]?.GetValue<bool>() == false ? r["error"]?.GetValue<string>() : null),
+            Results = r["results"]?.Deserialize<List<UI.AutoEqModel>>(Json.Options) ?? new(),
+        };
+    }
+
+    public void AutoEqRefresh() => Core.Command("autoeq_refresh");
+
+    /// <summary>A result's correction; <paramref name="create"/> also adds it as a new profile.</summary>
+    public UI.AutoEqFetchResult AutoEqFetch(string path, bool create)
+    {
+        var r = Core.Command("autoeq_fetch", new { path, create });
+        var res = new UI.AutoEqFetchResult
+        {
+            State = r["state"]?.GetValue<string>() ?? "error",
+            Error = r["error"]?.GetValue<string>(),
+            Correction = r["correction"]?.Deserialize<List<Band>>(Json.Options) ?? new(),
+            Source = r["source"]?.Deserialize<CorrectionSource>(Json.Options),
+            ImportedId = r["imported_id"]?.GetValue<string>(),
+        };
+        if (create && res.State == "ready") Apply(r);
+        return res;
     }
 
     // ---------------------------------------------------------------- share codes

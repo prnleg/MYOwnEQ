@@ -820,9 +820,11 @@ dependencies = [
  "myowneq-server",
  "myowneq-sync",
  "myowneq-update",
+ "native-tls",
  "qrcode",
  "serde",
  "serde_json",
+ "ureq",
  "uuid",
 ]
 

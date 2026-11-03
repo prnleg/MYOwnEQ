@@ -116,6 +116,7 @@ struct Sidebar: View {
     @Binding var search: String
     @AppStorage("showPresets") private var showPresets = true
     @State private var sharing: ShareInfo?
+    @State private var findingHeadphones = false
 
     var body: some View {
         let s = c.state
@@ -175,10 +176,15 @@ struct Sidebar: View {
                     .help(L("Import a share code from the clipboard"))
             }
             ToolbarItem {
+                Button { findingHeadphones = true } label: { Image(systemName: "headphones") }
+                    .help(L("New profile for your headphones (AutoEQ)"))
+            }
+            ToolbarItem {
                 Button { add() } label: { Image(systemName: "plus") }.help(L("New profile"))
             }
         }
         .sheet(item: $sharing) { ShareSheet(info: $0) }
+        .sheet(isPresented: $findingHeadphones) { AutoEqSheet(onCreated: { nav = .profile($0) }) }
     }
 
     private func row(_ p: Profile) -> some View {
@@ -550,15 +556,7 @@ struct EasyPanel: View {
             }
             HStack(alignment: .top, spacing: 14) {
                 Card(title: L("Headphone correction"), icon: "checkmark.seal") {
-                    if let src = profile.correctionSource {
-                        Text("\(src.provider): \(src.name)").font(.callout.weight(.semibold))
-                        Text(L("%@ filters, applied before your tone", profile.correction.count)).font(.caption).foregroundStyle(.secondary)
-                        Button(L("Remove")) { profile.correction = []; profile.correctionSource = nil }.buttonStyle(GlowButtonStyle(prominent: false))
-                    } else {
-                        Text(L("Import an AutoEQ ParametricEQ.txt to make your headphones sound neutral."))
-                            .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        Button(L("Import AutoEQ…")) { c.importFile(asCorrection: true) }.buttonStyle(GlowButtonStyle(prominent: false))
-                    }
+                    CorrectionControls(profile: $profile)
                 }
                 Card(title: L("Comfort"), icon: "ear") {
                     HStack {
@@ -587,6 +585,32 @@ struct EasyPanel: View {
                 .animation(.snappy, value: profile.macros[keyPath: kp])
                 .frame(width: 66, alignment: .trailing)
         }
+    }
+}
+
+/// Headphone correction: what's applied + find (AutoEQ search) / remove.
+// parity: autoeq-search
+struct CorrectionControls: View {
+    @Binding var profile: Profile
+    @State private var finding = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let src = profile.correctionSource ?? (profile.correction.isEmpty ? nil : CorrectionSource(provider: L("Imported"), name: "")) {
+                Text(src.name.isEmpty ? src.provider : "\(src.provider): \(src.name)").font(.callout.weight(.semibold))
+                Text(L("%@ filters, applied before your tone", profile.correction.count)).font(.caption).foregroundStyle(.secondary)
+                HStack {
+                    Button(L("Change…")) { finding = true }.buttonStyle(GlowButtonStyle(prominent: false))
+                    Button(L("Remove")) { profile.correction = []; profile.correctionSource = nil }.buttonStyle(GlowButtonStyle(prominent: false))
+                }
+            } else {
+                Text(L("Pick your headphones to make them sound neutral."))
+                    .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Button { finding = true } label: { Label(L("Find headphones…"), systemImage: "magnifyingglass") }
+                    .buttonStyle(GlowButtonStyle())
+            }
+        }
+        .sheet(isPresented: $finding) { AutoEqSheet(target: $profile) }
     }
 }
 

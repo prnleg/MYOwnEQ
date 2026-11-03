@@ -60,7 +60,6 @@ public sealed class ProPanel : StackPanel
         outCard.Margin = new Thickness(0, 14, 0, 0);
         Children.Add(outCard);
 
-        if (p.Correction.Count > 0)
         {
             var lines = Ui.VStack(2, p.Correction.Select(b =>
             {
@@ -68,7 +67,9 @@ public sealed class ProPanel : StackPanel
                 tb.FontFamily = new FontFamily("Cascadia Mono, Consolas");
                 return (UIElement)tb;
             }).ToArray());
-            var corr = Ui.Card(L("Correction · %@ · before your bands", p.CorrectionSource?.Name ?? L("imported")), Ui.GCheck, lines);
+            lines.Children.Add(CorrectionControls.Build(c, p, () => edited(true)));
+            ((FrameworkElement)lines.Children[^1]).Margin = new Thickness(0, p.Correction.Count > 0 ? 10 : 0, 0, 0);
+            var corr = Ui.Card(p.Correction.Count == 0 ? L("Headphone correction") : L("Correction · %@ · before your bands", p.CorrectionSource?.Name ?? L("imported")), Ui.GCheck, lines);
             corr.Margin = new Thickness(0, 14, 0, 0);
             Children.Add(corr);
         }
