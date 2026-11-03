@@ -8,6 +8,9 @@ struct ShareInfo: Identifiable {
     let code: String
     /// QR modules, rows of "1" (dark) / "0".
     let qr: [String]
+    var kind: Kind = .profile
+
+    enum Kind { case profile, theme }
 }
 
 /// Code + QR + Copy. Anyone can paste the code into MyOwnEQ to get the same EQ.
@@ -22,7 +25,9 @@ struct ShareSheet: View {
         VStack(spacing: 16) {
             VStack(spacing: 4) {
                 Text(L("Share “%@”", info.name)).font(.title3.weight(.semibold))
-                Text(L("Anyone with MyOwnEQ can paste this code to get the same EQ. No account, no server."))
+                Text(info.kind == .theme
+                     ? L("Anyone with MyOwnEQ can paste this code to get the same theme (colors only, not the background image).")
+                     : L("Anyone with MyOwnEQ can paste this code to get the same EQ. No account, no server."))
                     .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center)
             }
             QRView(rows: info.qr)

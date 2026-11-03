@@ -246,6 +246,19 @@ pub enum Command {
         #[serde(default)]
         create: bool,
     },
+    /// Save a theme made in the app into the user themes folder (the last folder
+    /// given to `load_themes`). No `id` = new theme. Replies with `id`.
+    ThemeSave {
+        theme: Value,
+    },
+    /// Delete a user theme (and its background image if no other theme uses it).
+    ThemeDelete {
+        id: String,
+    },
+    /// Theme share code (`MEQT-…`, no background image) + QR rows.
+    ThemeCode {
+        theme: Value,
+    },
     /// Language packs from `dirs` + which one to use for `choice` / `preferred`.
     LoadLangs {
         dirs: Vec<String>,
@@ -322,6 +335,9 @@ impl Command {
                 | Command::Diagnostics { .. }
                 | Command::ShareCode { .. }
                 | Command::AutoeqSearch { .. }
+                | Command::ThemeSave { .. }
+                | Command::ThemeDelete { .. }
+                | Command::ThemeCode { .. }
                 | Command::AutoeqRefresh
                 // These run their requests through `command()`, which records sync itself.
                 | Command::ControlConfigure { .. }
@@ -379,6 +395,8 @@ pub struct Core {
     control_enabled: bool,
     control: Option<crate::control::ControlServer>,
     autoeq: crate::autoeq::AutoEq,
+    /// User themes folder (last folder passed to `load_themes`).
+    theme_dir: Option<PathBuf>,
 }
 
 impl Core {
@@ -440,6 +458,7 @@ impl Core {
             control_enabled: lf.control,
             control: None,
             autoeq,
+            theme_dir: None,
         };
         core.start_control();
         // Loading heals presets (Library::restore_presets); persist that now
@@ -749,12 +768,16 @@ impl Core {
             ControlTick => {
                 let pending = self.control.as_ref().map(|c| c.drain()).unwrap_or_default();
                 let mut changed = false;
+                let mut theme_id = Value::Null;
                 for p in pending {
                     let (reply, ch) = self.control_request(&p.request);
                     changed |= ch;
+                    if reply["theme_id"].is_string() {
+                        theme_id = reply["theme_id"].clone();
+                    }
                     let _ = p.reply.send(reply);
                 }
-                return Ok(json!({ "ok": true, "changed": changed }));
+                return Ok(json!({ "ok": true, "changed": changed, "theme_id": theme_id }));
             }
             OpenUrl { url } => {
                 let req = crate::control::parse_url(&url)?;
@@ -771,18 +794,29 @@ impl Core {
             }
             ImportCode { text } => {
                 use myowneq_model::share::{decode, ShareError};
+                let fail = |e: ShareError| {
+                    let reason = match e {
+                        ShareError::NotACode => "not_a_code",
+                        ShareError::Damaged => "damaged",
+                        ShareError::Newer => "newer",
+                    };
+                    json!({ "ok": false, "error": e.to_string(), "reason": reason })
+                };
+                // Theme code: saved into the user themes folder, library untouched.
+                if text.contains(myowneq_model::assets::THEME_PREFIX)
+                    && myowneq_model::share::find(&text).is_none()
+                {
+                    let theme = match myowneq_model::assets::decode_theme(&text) {
+                        Ok(t) => t,
+                        Err(e) => return Ok(fail(e)),
+                    };
+                    let dir = self.theme_dir.clone().ok_or("themes not loaded")?;
+                    let id = myowneq_model::assets::save_theme(&dir, &theme)?;
+                    return Ok(json!({ "ok": true, "theme_id": id, "theme_name": theme["name"] }));
+                }
                 let mut p = match decode(&text) {
                     Ok(p) => p,
-                    Err(e) => {
-                        let reason = match e {
-                            ShareError::NotACode => "not_a_code",
-                            ShareError::Damaged => "damaged",
-                            ShareError::Newer => "newer",
-                        };
-                        return Ok(
-                            json!({ "ok": false, "error": e.to_string(), "reason": reason }),
-                        );
-                    }
+                    Err(e) => return Ok(fail(e)),
                 };
                 p.name = self.unique_name(&p.name);
                 let id = p.id;
@@ -804,6 +838,23 @@ impl Core {
                 return Ok(self.autoeq_search(String::new(), None, 0));
             }
             AutoeqFetch { path, create } => return Ok(self.autoeq_fetch(&path, create)),
+            ThemeSave { mut theme } => {
+                let dir = self.theme_dir.clone().ok_or("themes not loaded")?;
+                if theme["id"].as_str().is_none_or(|s| s.trim().is_empty()) {
+                    theme["id"] = myowneq_model::assets::new_theme_id().into();
+                }
+                let id = myowneq_model::assets::save_theme(&dir, &theme)?;
+                return Ok(json!({ "ok": true, "id": id }));
+            }
+            ThemeDelete { id } => {
+                let dir = self.theme_dir.clone().ok_or("themes not loaded")?;
+                myowneq_model::assets::delete_theme(&dir, &id)?;
+                return Ok(json!({ "ok": true }));
+            }
+            ThemeCode { theme } => {
+                let code = myowneq_model::assets::encode_theme(&theme)?;
+                return Ok(json!({ "ok": true, "code": code, "qr": qr_rows(&code) }));
+            }
             SyncConfigure { config } => self.sync.apply_config(config),
             SyncTick => {
                 if !self.sync.tick(&mut self.lib) {
@@ -910,6 +961,7 @@ impl Core {
                 }));
             }
             LoadThemes { dirs } => {
+                self.theme_dir = dirs.last().map(PathBuf::from);
                 let l = myowneq_model::assets::load_themes(&dirs);
                 return Ok(json!({ "ok": true, "themes": l.items, "errors": l.errors }));
             }
@@ -1188,6 +1240,12 @@ impl Core {
                 let r = self.exec(json!({ "cmd": "import_code", "text": arg("text") }));
                 if r["ok"] == false {
                     return (r, false);
+                }
+                if r["theme_id"].is_string() {
+                    return (
+                        json!({ "ok": true, "theme_id": r["theme_id"], "theme": r["theme_name"] }),
+                        true,
+                    );
                 }
                 let id = r["imported_id"].clone();
                 let name = id
@@ -1919,6 +1977,69 @@ mod tests {
         assert_eq!(p.name, "Sennheiser HD 600");
         assert_eq!(p.correction.len(), 2);
         assert_eq!(core.lib.profiles.len(), n + 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn themes_save_share_import_delete() {
+        let dir = std::env::temp_dir().join(format!("meq-themes-{}", uuid::Uuid::new_v4()));
+        let user = dir.join("Themes");
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let mut core = Core::new(None, "m1");
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"load_themes","dirs":[root.join("themes"), user.clone()]}),
+        );
+        let neon = r["themes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == "neon-sunset")
+            .unwrap()
+            .clone();
+
+        // Customize a copy: no id = new user theme.
+        let mut mine = neon.clone();
+        mine.as_object_mut().unwrap().remove("id");
+        mine["name"] = "Minha".into();
+        let r = cmd(&mut core, json!({"cmd":"theme_save","theme": mine}));
+        let id = r["id"].as_str().unwrap().to_string();
+        assert!(id.starts_with("user-"));
+        assert!(user.join(format!("{id}.json")).exists());
+
+        // Share + import through the same paste box as profile codes.
+        let code = cmd(&mut core, json!({"cmd":"theme_code","theme": neon}))["code"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(code.starts_with("MEQT-"));
+        let profiles = core.lib.profiles.len();
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"import_code","text": format!("tema novo {code}")}),
+        );
+        assert_eq!(r["theme_name"], "Neon Sunset");
+        assert_eq!(
+            core.lib.profiles.len(),
+            profiles,
+            "theme import doesn't touch profiles"
+        );
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"load_themes","dirs":[root.join("themes"), user.clone()]}),
+        );
+        assert!(r["themes"].as_array().unwrap().len() >= 7);
+
+        // Also by link.
+        let r = cmd(
+            &mut core,
+            json!({"cmd":"open_url","url": format!("myowneq://import/{code}")}),
+        );
+        assert!(r["control"]["theme_id"].is_string(), "{r}");
+
+        let r = cmd(&mut core, json!({"cmd":"theme_delete","id": id}));
+        assert_eq!(r["ok"], true);
+        assert!(!user.join(format!("{id}.json")).exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

@@ -246,6 +246,13 @@
       "note": "Lista e arquivos baixados do GitHub do AutoEQ e guardados em cache (funciona offline depois). Alvo fixo de cada medição."
     },
     {
+      "id": "theme-editor",
+      "title": "Editor de tema no app: cores, manchas, brilho, imagem de fundo, códigos MEQT-…",
+      "mac": "yes",
+      "windows": "yes",
+      "note": "Salvar/apagar/código pelo core (theme_save / theme_delete / theme_code). Imagem copiada para Themes/images como JPEG; não vai no código."
+    },
+    {
       "id": "control",
       "title": "Canal de controle local (linha de comando, outros apps) + opção em Preferências",
       "mac": "yes",
@@ -380,6 +387,13 @@
       "mac": [],
       "windows": [
         "Crossfeed needs the MyOwnEQ engine (Preferences › Windows audio engine)."
+      ]
+    },
+    {
+      "why": "Filtro do diálogo de abrir arquivo do Windows (no Mac o painel filtra por tipo, sem texto)",
+      "mac": [],
+      "windows": [
+        "Images"
       ]
     }
   ]

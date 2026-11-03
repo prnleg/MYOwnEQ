@@ -525,7 +525,9 @@ public sealed class AppController : IDisposable
     private void ControlTick()
     {
         if (State?.Control?.Running != true) return;
-        if (Core.Command("control_tick")["changed"]?.GetValue<bool>() == true) Reload();
+        var r = Core.Command("control_tick");
+        if (r["changed"]?.GetValue<bool>() == true) Reload();
+        if (r["theme_id"] is JsonValue v && v.TryGetValue<string>(out var themeId)) { UI.Ui.Store.Reload(); UI.Ui.Store.Select(themeId); }
     }
 
     public void SetControl(bool on) => Apply(Core.Command("control_configure", new { enabled = on }));
@@ -542,7 +544,9 @@ public sealed class AppController : IDisposable
         }
         Apply(r);
         var reply = r["control"];
-        if (reply?["profile"]?.GetValue<string>() is { } name)
+        if (reply?["theme_id"]?.GetValue<string>() is { } themeId)
+            ThemeImported(themeId, reply["theme"]?.GetValue<string>());
+        else if (reply?["profile"]?.GetValue<string>() is { } name)
             Notify(reply["imported_id"] is not null ? UI.Loc.L("Imported “%@” from a share code", name) : UI.Loc.L("Now playing: %@", name));
         else if (reply?["enabled"] is { } en)
             Notify(en.GetValue<bool>() ? UI.Loc.L("EQ on") : UI.Loc.L("EQ off"));
@@ -583,6 +587,14 @@ public sealed class AppController : IDisposable
         return res;
     }
 
+    /// <summary>A theme code was imported (clipboard, link, command line): reload + select it.</summary>
+    private void ThemeImported(string id, string? name)
+    {
+        UI.Ui.Store.Reload();
+        UI.Ui.Store.Select(id);
+        Notify(UI.Loc.L("Theme “%@” added", name ?? ""));
+    }
+
     // ---------------------------------------------------------------- share codes
 
     /// <summary>Share code (MEQ1-…) and QR rows ("1" = dark) for a profile.</summary>
@@ -601,9 +613,14 @@ public sealed class AppController : IDisposable
         string text = "";
         try { text = System.Windows.Clipboard.GetText(); } catch { }
         var r = Core.Command("import_code", new { text });
+        if (r["theme_id"]?.GetValue<string>() is { } themeId)
+        {
+            ThemeImported(themeId, r["theme_name"]?.GetValue<string>());
+            return null;
+        }
         string? why = r["reason"]?.GetValue<string>() switch
         {
-            "not_a_code" => UI.Loc.L("No MyOwnEQ share code on the clipboard. Copy one (MEQ1-…) and try again."),
+            "not_a_code" => UI.Loc.L("No MyOwnEQ share code on the clipboard. Copy one (MEQ1-… or MEQT-…) and try again."),
             "damaged" => UI.Loc.L("That share code is damaged or incomplete. Copy it again."),
             "newer" => UI.Loc.L("That share code is from a newer MyOwnEQ. Update the app."),
             _ => null,

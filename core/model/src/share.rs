@@ -116,8 +116,13 @@ pub fn encode(p: &Profile) -> String {
 }
 
 /// First share code found in `text` (it may be inside a longer message).
+/// Theme codes (`MEQT-…`) are skipped: see [`crate::assets::decode_theme`].
 pub fn find(text: &str) -> Option<&str> {
-    let start = text.find(PREFIX).or_else(|| text.find("MEQ"))?;
+    let start = text.find(PREFIX).or_else(|| {
+        text.match_indices("MEQ")
+            .map(|(i, _)| i)
+            .find(|&i| !text[i..].starts_with(crate::assets::THEME_PREFIX))
+    })?;
     let rest = &text[start..];
     let end = rest
         .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
@@ -261,7 +266,7 @@ fn put_u16(w: &mut Vec<u8>, v: u16) {
     w.extend_from_slice(&v.to_le_bytes());
 }
 
-fn put_str(w: &mut Vec<u8>, s: &str) {
+pub(crate) fn put_str(w: &mut Vec<u8>, s: &str) {
     let mut end = s.len().min(MAX_NAME);
     while !s.is_char_boundary(end) {
         end -= 1;
@@ -281,7 +286,7 @@ fn put_bands(w: &mut Vec<u8>, bands: &[Band]) {
     }
 }
 
-fn fletcher16(d: &[u8]) -> u16 {
+pub(crate) fn fletcher16(d: &[u8]) -> u16 {
     let (mut a, mut b) = (0u16, 0u16);
     for &x in d {
         a = (a + x as u16) % 255;
@@ -290,13 +295,13 @@ fn fletcher16(d: &[u8]) -> u16 {
     b << 8 | a
 }
 
-struct Reader<'a> {
-    d: &'a [u8],
-    i: usize,
+pub(crate) struct Reader<'a> {
+    pub(crate) d: &'a [u8],
+    pub(crate) i: usize,
 }
 
 impl Reader<'_> {
-    fn u8(&mut self) -> Option<u8> {
+    pub(crate) fn u8(&mut self) -> Option<u8> {
         let v = *self.d.get(self.i)?;
         self.i += 1;
         Some(v)
@@ -310,7 +315,7 @@ impl Reader<'_> {
         Some(self.u16()? as i16)
     }
 
-    fn str(&mut self) -> Option<String> {
+    pub(crate) fn str(&mut self) -> Option<String> {
         let n = self.u8()? as usize;
         let s = self.d.get(self.i..self.i + n)?;
         self.i += n;

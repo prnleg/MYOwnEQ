@@ -300,7 +300,9 @@ final class AppController: ObservableObject {
     /// Run requests from the command line / other apps (queued by the core).
     private func controlTick() {
         guard state?.control?.running == true else { return }
-        if core.command("control_tick")["changed"] as? Bool == true { reload() }
+        let r = core.command("control_tick")
+        if r["changed"] as? Bool == true { reload() }
+        if let id = r["theme_id"] as? String { onThemeImported?(id) }
     }
 
     func setControl(_ on: Bool) { apply(core.command("control_configure", ["enabled": on])) }
@@ -315,7 +317,10 @@ final class AppController: ObservableObject {
         }
         apply(r)
         let reply = r["control"] as? [String: Any] ?? [:]
-        if let name = reply["profile"] as? String, reply["imported_id"] != nil {
+        if let id = reply["theme_id"] as? String {
+            onThemeImported?(id)
+            notify(L("Theme “%@” added", reply["theme"] as? String ?? ""))
+        } else if let name = reply["profile"] as? String, reply["imported_id"] != nil {
             notify(L("Imported “%@” from a share code", name))
         } else if let name = reply["profile"] as? String {
             notify(L("Now playing: %@", name))
@@ -323,6 +328,9 @@ final class AppController: ObservableObject {
             notify(on ? L("EQ on") : L("EQ off"))
         }
     }
+
+    /// A theme code was imported (clipboard, link, command line): reload + select it.
+    var onThemeImported: ((String) -> Void)?
 
     // MARK: - share codes
     // parity: share-codes
@@ -339,8 +347,13 @@ final class AppController: ObservableObject {
     func importCodeFromClipboard() -> ID? {
         let text = NSPasteboard.general.string(forType: .string) ?? ""
         let r = core.command("import_code", ["text": text])
+        if let id = r["theme_id"] as? String {
+            onThemeImported?(id)
+            notify(L("Theme “%@” added", r["theme_name"] as? String ?? ""))
+            return nil
+        }
         switch r["reason"] as? String {
-        case "not_a_code": notify(L("No MyOwnEQ share code on the clipboard. Copy one (MEQ1-…) and try again."), error: true); return nil
+        case "not_a_code": notify(L("No MyOwnEQ share code on the clipboard. Copy one (MEQ1-… or MEQT-…) and try again."), error: true); return nil
         case "damaged": notify(L("That share code is damaged or incomplete. Copy it again."), error: true); return nil
         case "newer": notify(L("That share code is from a newer MyOwnEQ. Update the app."), error: true); return nil
         default: apply(r)

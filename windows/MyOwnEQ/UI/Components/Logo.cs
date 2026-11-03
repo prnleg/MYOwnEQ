@@ -186,6 +186,19 @@ public static class Dialogs
     public static void Share(Window? owner, AppController c, Profile p)
     {
         if (c.ShareCode(p.Id) is not { } share) return;
+        ShowCode(owner, c, p.Name, L("Anyone with MyOwnEQ can paste this code to get the same EQ. No account, no server."), share);
+    }
+
+    /// <summary>Theme code (MEQT-…) + QR + Copy.</summary>
+    // parity: theme-editor
+    public static void ShareTheme(Window? owner, AppController c, Theme t)
+    {
+        if (Ui.Store.ShareCode(t) is not { } share) return;
+        ShowCode(owner, c, t.Name, L("Anyone with MyOwnEQ can paste this code to get the same theme (colors only, not the background image)."), share);
+    }
+
+    private static void ShowCode(Window? owner, AppController c, string name, string hintText, (string Code, System.Collections.Generic.List<string> Qr) share)
+    {
         var w = new Window
         {
             Title = "MyOwnEQ",
@@ -197,8 +210,8 @@ public static class Dialogs
             ShowInTaskbar = false,
             Background = Theme.Frozen(Ui.T.PanelColor),
         };
-        var title = Ui.Text(L("Share “%@”", p.Name), 15, FontWeights.SemiBold);
-        var hint = Ui.Secondary(L("Anyone with MyOwnEQ can paste this code to get the same EQ. No account, no server."), 12);
+        var title = Ui.Text(L("Share “%@”", name), 15, FontWeights.SemiBold);
+        var hint = Ui.Secondary(hintText, 12);
         hint.TextWrapping = TextWrapping.Wrap;
         hint.Margin = new Thickness(0, 4, 0, 14);
         var qr = new Border

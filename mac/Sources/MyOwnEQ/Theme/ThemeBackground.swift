@@ -59,12 +59,19 @@ struct ThemeBackground: View {
     var body: some View {
         let t = theme.current
         let animate = theme.motionAllowed
+        let photo = theme.backgroundImage(t).map { (Image(nsImage: $0), $0.size) }
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !animate)) { tl in
             Canvas { ctx, size in
                 let time = tl.date.timeIntervalSinceReferenceDate * 0.07 * t.background.speed
                 if theme.reactive { SpectrumFeed.shared.update(c, now: tl.date) }
                 let pulse = theme.reactive ? SpectrumFeed.shared.level : 0
                 ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(t.baseColor))
+                if let (img, isz) = photo {
+                    // Aspect fill, faded into the base color by `image_opacity`.
+                    var l = ctx
+                    l.opacity = t.background.imageOpacity
+                    l.draw(img, in: aspectFill(isz, in: size))
+                }
                 let colors = t.blobColors
                 let n = max(colors.count, 1)
                 let dim = max(size.width, size.height)
@@ -90,4 +97,12 @@ struct ThemeBackground: View {
         }
         .ignoresSafeArea()
     }
+}
+
+/// Rect that covers `bounds` with an image of `size`, centered (aspect fill).
+func aspectFill(_ size: CGSize, in bounds: CGSize) -> CGRect {
+    guard size.width > 0, size.height > 0 else { return CGRect(origin: .zero, size: bounds) }
+    let s = max(bounds.width / size.width, bounds.height / size.height)
+    let w = size.width * s, h = size.height * s
+    return CGRect(x: (bounds.width - w) / 2, y: (bounds.height - h) / 2, width: w, height: h)
 }

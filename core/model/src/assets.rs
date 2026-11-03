@@ -68,7 +68,282 @@ fn check_theme(v: &Value) -> Result<String, String> {
     if let Some(p) = v.get("panel") {
         color("panel", p)?;
     }
+    let bg = &v["background"];
+    if let Some(img) = bg.get("image").filter(|i| !i.is_null()) {
+        match img.as_str() {
+            Some(f) if is_image_name(f) => {}
+            _ => {
+                return Err(
+                    "\"background.image\" must be a .png/.jpg file name in Themes/images".into(),
+                )
+            }
+        }
+    }
+    for key in ["image_opacity", "image_blur", "intensity", "speed"] {
+        if let Some(x) = bg.get(key).filter(|x| !x.is_null()) {
+            if !x.is_number() {
+                return Err(format!("\"background.{key}\" must be a number"));
+            }
+        }
+    }
     Ok(id.to_string())
+}
+
+/// Background images live in `<user Themes>/images/`; a theme names only the file.
+pub fn is_image_name(f: &str) -> bool {
+    let lower = f.to_ascii_lowercase();
+    !f.is_empty()
+        && f.len() <= 120
+        && !f.contains(['/', '\\', ':'])
+        && !f.starts_with('.')
+        && [".png", ".jpg", ".jpeg"].iter().any(|e| lower.ends_with(e))
+}
+
+/// Id for a theme made in the app (`user-1a2b3c4d`).
+pub fn new_theme_id() -> String {
+    format!("user-{}", &uuid::Uuid::new_v4().simple().to_string()[..8])
+}
+
+fn safe_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
+
+/// Write a user theme as `<dir>/<id>.json` (validated, atomic). Returns the id.
+pub fn save_theme(dir: &Path, theme: &Value) -> Result<String, String> {
+    let id = check_theme(theme)?;
+    if !safe_id(&id) {
+        return Err("theme id must be lowercase letters, digits and dashes".into());
+    }
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{id}.json"));
+    let tmp = dir.join(format!(".{id}.json.tmp"));
+    let text = serde_json::to_string_pretty(theme).map_err(|e| e.to_string())? + "\n";
+    std::fs::write(&tmp, text).map_err(|e| e.to_string())?;
+    std::fs::rename(&tmp, &path).map_err(|e| e.to_string())?;
+    Ok(id)
+}
+
+/// Delete a user theme and its background image (unless another theme uses it).
+pub fn delete_theme(dir: &Path, id: &str) -> Result<(), String> {
+    if !safe_id(id) {
+        return Err("bad theme id".into());
+    }
+    let path = dir.join(format!("{id}.json"));
+    let image = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .and_then(|v| v["background"]["image"].as_str().map(str::to_string));
+    std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+    if let Some(img) = image.filter(|f| is_image_name(f)) {
+        let used = json_files(dir).iter().any(|f| {
+            std::fs::read_to_string(f)
+                .ok()
+                .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+                .is_some_and(|v| v["background"]["image"].as_str() == Some(img.as_str()))
+        });
+        if !used {
+            let _ = std::fs::remove_file(dir.join("images").join(img));
+        }
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------- theme codes
+
+/// Theme share code prefix. Same idea as profile codes (`MEQ1-`): the whole theme
+/// (colors and numbers, not the background image) packed into the text.
+///
+/// Layout (v1), then Fletcher-16 of everything before it, base64url:
+/// ```text
+/// u8  flags  bit0 dark, bit1 has panel, bit2 colors carry alpha (4 bytes, else 3)
+/// str name, str author                   (u8 length + UTF-8)
+/// color accent
+/// u8 n + colors  curve      u8 n + colors  spectrum
+/// color base     u8 n + colors  blobs     color panel (bit1)
+/// u8 intensity ×100, u8 speed ×20, u8 glow ×100
+/// ```
+pub const THEME_PREFIX: &str = "MEQT-";
+const MAX_LIST: usize = 12;
+
+fn rgba(hex: &str) -> [u8; 4] {
+    let h = hex.trim().trim_start_matches('#');
+    let v = u32::from_str_radix(h, 16).unwrap_or(0);
+    if h.len() == 8 {
+        v.to_be_bytes()
+    } else {
+        let [_, r, g, b] = v.to_be_bytes();
+        [r, g, b, 255]
+    }
+}
+
+fn hex_of(c: [u8; 4]) -> String {
+    if c[3] == 255 {
+        format!("#{:02X}{:02X}{:02X}", c[0], c[1], c[2])
+    } else {
+        format!("#{:02X}{:02X}{:02X}{:02X}", c[0], c[1], c[2], c[3])
+    }
+}
+
+fn colors(v: &Value) -> Vec<String> {
+    v.as_array()
+        .map(|a| {
+            a.iter()
+                .filter_map(|c| c.as_str().filter(|s| is_hex_color(s)))
+                .take(MAX_LIST)
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn unit(v: &Value, default: f64, scale: f64) -> u8 {
+    (v.as_f64().unwrap_or(default) * scale)
+        .round()
+        .clamp(0.0, 255.0) as u8
+}
+
+/// Pack a (valid) theme into `MEQT-…`. The background image isn't included.
+pub fn encode_theme(theme: &Value) -> Result<String, String> {
+    use base64::Engine;
+    check_theme(theme)?;
+    let bg = &theme["background"];
+    let accent = theme["accent"].as_str().unwrap_or("#FF2E88").to_string();
+    let base = bg["base"].as_str().unwrap_or("#000000").to_string();
+    let panel = theme["panel"].as_str().map(str::to_string);
+    let (curve, spectrum, blobs) = (
+        colors(&theme["curve"]),
+        colors(&theme["spectrum"]),
+        colors(&bg["blobs"]),
+    );
+    let all: Vec<&String> = [&accent, &base]
+        .into_iter()
+        .chain(&curve)
+        .chain(&spectrum)
+        .chain(&blobs)
+        .chain(panel.iter())
+        .collect();
+    let alpha = all.iter().any(|c| rgba(c)[3] != 255);
+    let mut w = Vec::with_capacity(96);
+    w.push(
+        u8::from(theme["dark"].as_bool().unwrap_or(true))
+            | u8::from(panel.is_some()) << 1
+            | u8::from(alpha) << 2,
+    );
+    let name = theme["name"]
+        .as_str()
+        .or(theme["id"].as_str())
+        .unwrap_or("");
+    crate::share::put_str(&mut w, name);
+    crate::share::put_str(&mut w, theme["author"].as_str().unwrap_or(""));
+    let put = |w: &mut Vec<u8>, c: &str| {
+        let b = rgba(c);
+        w.extend_from_slice(if alpha { &b[..] } else { &b[..3] });
+    };
+    put(&mut w, &accent);
+    for list in [&curve, &spectrum] {
+        w.push(list.len() as u8);
+        list.iter().for_each(|c| put(&mut w, c));
+    }
+    put(&mut w, &base);
+    w.push(blobs.len() as u8);
+    blobs.iter().for_each(|c| put(&mut w, c));
+    if let Some(p) = &panel {
+        put(&mut w, p);
+    }
+    w.push(unit(&bg["intensity"], 0.4, 100.0));
+    w.push(unit(&bg["speed"], 1.0, 20.0));
+    w.push(unit(&theme["glow"], 0.8, 100.0));
+    let sum = crate::share::fletcher16(&w);
+    w.extend_from_slice(&sum.to_le_bytes());
+    Ok(format!(
+        "{THEME_PREFIX}{}",
+        base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(w)
+    ))
+}
+
+/// First theme code in `text`, decoded into a new theme (fresh `user-…` id).
+pub fn decode_theme(text: &str) -> Result<Value, crate::share::ShareError> {
+    use crate::share::ShareError;
+    use base64::Engine;
+    let start = text.find(THEME_PREFIX).ok_or(ShareError::NotACode)?;
+    let body = &text[start + THEME_PREFIX.len()..];
+    let end = body
+        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '-' || c == '_'))
+        .unwrap_or(body.len());
+    let raw = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(&body[..end])
+        .map_err(|_| ShareError::Damaged)?;
+    if raw.len() < 3 {
+        return Err(ShareError::Damaged);
+    }
+    let (data, sum) = raw.split_at(raw.len() - 2);
+    if crate::share::fletcher16(data) != u16::from_le_bytes([sum[0], sum[1]]) {
+        return Err(ShareError::Damaged);
+    }
+    read_theme(data).ok_or(ShareError::Damaged)
+}
+
+fn read_color(r: &mut crate::share::Reader, alpha: bool) -> Option<String> {
+    Some(hex_of([
+        r.u8()?,
+        r.u8()?,
+        r.u8()?,
+        if alpha { r.u8()? } else { 255 },
+    ]))
+}
+
+fn read_colors(r: &mut crate::share::Reader, alpha: bool) -> Option<Vec<String>> {
+    let n = r.u8()? as usize;
+    if n > MAX_LIST {
+        return None;
+    }
+    (0..n).map(|_| read_color(r, alpha)).collect()
+}
+
+fn read_theme(data: &[u8]) -> Option<Value> {
+    let mut r = crate::share::Reader { d: data, i: 0 };
+    let flags = r.u8()?;
+    let alpha = flags & 4 != 0;
+    let name = r.str()?;
+    let author = r.str()?;
+    let accent = read_color(&mut r, alpha)?;
+    let curve = read_colors(&mut r, alpha)?;
+    let spectrum = read_colors(&mut r, alpha)?;
+    let base = read_color(&mut r, alpha)?;
+    let blobs = read_colors(&mut r, alpha)?;
+    let panel = if flags & 2 != 0 {
+        Some(read_color(&mut r, alpha)?)
+    } else {
+        None
+    };
+    let intensity = r.u8()? as f64 / 100.0;
+    let speed = r.u8()? as f64 / 20.0;
+    let glow = r.u8()? as f64 / 100.0;
+    if r.i != data.len() {
+        return None;
+    }
+    let mut v = serde_json::json!({
+        "id": new_theme_id(),
+        "name": if name.trim().is_empty() { "Shared theme".to_string() } else { name },
+        "dark": flags & 1 != 0,
+        "accent": accent,
+        "curve": curve,
+        "spectrum": spectrum,
+        "background": { "base": base, "blobs": blobs, "intensity": intensity, "speed": speed },
+        "glow": glow,
+    });
+    if !author.is_empty() {
+        v["author"] = author.into();
+    }
+    if let Some(p) = panel {
+        v["panel"] = p.into();
+    }
+    check_theme(&v).ok()?;
+    Some(v)
 }
 
 /// Themes from `dirs` in order; later folders replace a theme with the same id.
@@ -230,6 +505,59 @@ mod tests {
         assert_eq!(t.items[0]["accent"], "#00FF00");
         assert_eq!(t.errors.len(), 1);
         assert!(t.errors[0].contains("bad.json"));
+    }
+
+    #[test]
+    fn theme_codes_round_trip() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let t = load_themes(&[root.join("themes")]);
+        for theme in &t.items {
+            let code = encode_theme(theme).unwrap();
+            assert!(code.starts_with("MEQT-") && code.len() < 140, "{code}");
+            let back = decode_theme(&format!("olha esse tema: {code} !!")).unwrap();
+            assert!(back["id"].as_str().unwrap().starts_with("user-"));
+            for k in [
+                "name", "dark", "accent", "curve", "spectrum", "panel", "glow",
+            ] {
+                assert_eq!(back[k], theme[k], "{k} of {}", theme["id"]);
+            }
+            for k in ["base", "blobs", "intensity", "speed"] {
+                assert_eq!(back["background"][k], theme["background"][k], "{k}");
+            }
+        }
+        // Alpha colors survive; image is not part of the code.
+        let v = serde_json::json!({"id":"x","name":"A","accent":"#11223344",
+            "background":{"base":"#000000","image":"bg.jpg","image_opacity":0.5}});
+        let back = decode_theme(&encode_theme(&v).unwrap()).unwrap();
+        assert_eq!(back["accent"], "#11223344");
+        assert!(back["background"].get("image").is_none());
+        // Profile codes aren't theme codes and vice versa.
+        assert!(decode_theme("MEQ1-AAAA").is_err());
+        let code = encode_theme(&v).unwrap();
+        assert!(crate::share::find(&code).is_none());
+        let mut bad = code.clone();
+        bad.pop();
+        assert!(decode_theme(&bad).is_err());
+    }
+
+    #[test]
+    fn save_delete_and_image_names() {
+        let d = dir("save", &[]);
+        let v = serde_json::json!({"id":"user-1","name":"Mine","accent":"#FF0000",
+            "background":{"base":"#000000","image":"user-1.jpg"}});
+        std::fs::create_dir_all(d.join("images")).unwrap();
+        std::fs::write(d.join("images/user-1.jpg"), b"x").unwrap();
+        assert_eq!(save_theme(&d, &v).unwrap(), "user-1");
+        assert_eq!(load_themes(&[&d]).items.len(), 1);
+        let bad =
+            serde_json::json!({"id":"../x","accent":"#FF0000","background":{"base":"#000000"}});
+        assert!(save_theme(&d, &bad).is_err());
+        let bad = serde_json::json!({"id":"y","accent":"#FF0000","background":{"base":"#000000","image":"../../etc/passwd"}});
+        assert!(save_theme(&d, &bad).is_err());
+        delete_theme(&d, "user-1").unwrap();
+        assert!(load_themes(&[&d]).items.is_empty());
+        assert!(!d.join("images/user-1.jpg").exists());
+        assert!(is_image_name("a b.PNG") && !is_image_name("x.gif") && !is_image_name("a/b.png"));
     }
 
     #[test]

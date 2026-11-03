@@ -47,9 +47,16 @@ Cada item vira um PR próprio. Nada vai direto na `main`.
 - **Escolher o alvo** (Harman, IEF, neutro…) fica para depois: cada resultado do AutoEQ já
   vem ajustado para um alvo; trocar exige ajustar a curva nós mesmos a partir da medição.
 
+## PR 5 — Editor de tema
+
+- Criar/editar tema dentro do app (Preferências › Tema › Personalizar…), com prévia ao
+  vivo: cores, curva, espectro, manchas, brilho, velocidade.
+- Imagem de fundo (copiada para `Themes/images` como JPEG, força e desfoque ajustáveis).
+- Códigos de tema `MEQT-…` (sem a imagem) e QR. Colar pelo mesmo botão dos perfis, por
+  link `myowneq://import/MEQT-…` ou pela linha de comando.
+
 ## Próximos (app principal)
 
-- Editor de tema dentro do app + imagem de fundo + códigos de tema (`MEQT-…`).
 - Aba Comunidade (EQs e temas do site), depois do site estar no ar.
 - EQ separado para esquerdo/direito (modo Pro).
 - Atalhos de teclado globais (trocar perfil, ligar/desligar).

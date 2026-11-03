@@ -57,7 +57,14 @@ struct MyOwnEQApp: App {
         let c = AppController()
         MainActor.assumeIsolated { LinkDelegate.attach(c) }
         _controller = StateObject(wrappedValue: c)
-        _theme = StateObject(wrappedValue: ThemeStore(core: c.core))
+        let ts = MainActor.assumeIsolated { ThemeStore(core: c.core) }
+        c.onThemeImported = { [weak ts] id in
+            MainActor.assumeIsolated {
+                ts?.reload()
+                ts?.select(id)
+            }
+        }
+        _theme = StateObject(wrappedValue: ts)
     }
 
     var body: some Scene {

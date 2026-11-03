@@ -29,6 +29,7 @@ Coisas novas vão pro [ROADMAP.md](ROADMAP.md).
 - 🎧 **Perfil por fone + regra por app**: KZ no padrão, abriu o CS2 → vira **FPS** sozinho 🔫. Fechou o jogo → volta. Momentum 4 nem fica sabendo
 - 🔄 **Sync**: liga o "KZ do Mac" com o "KZ do PC" e eles viram um só. Trocou num, trocou no outro
 - 📥 **Importa** teus presets do eqMac e do Equalizer APO / Peace. Não perde NADA
+- 🎨 **Tema do teu jeito**: muda todas as cores, bota tua foto de fundo, e compartilha o tema pros outros com código `MEQT-…`
 
 ## Como é por dentro 🧠
 ```

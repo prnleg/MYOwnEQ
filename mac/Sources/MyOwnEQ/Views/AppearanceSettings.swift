@@ -6,6 +6,8 @@ struct AppearanceSettings: View {
     @EnvironmentObject var lang: Lang
     @EnvironmentObject var c: AppController
     @AppStorage("autoSave") private var autoSave = true
+    @State private var editing: ThemeEditTarget?
+    @State private var sharingTheme: ShareInfo?
 
     var body: some View {
         ScrollView {
@@ -48,9 +50,22 @@ struct AppearanceSettings: View {
                         ForEach(theme.themes) { t in
                             ThemeCard(t: t, selected: t.id == theme.current.id)
                                 .onTapGesture { withAnimation(.easeInOut(duration: 0.45)) { theme.select(t.id) } }
+                                .contextMenu {
+                                    Button(theme.isUserTheme(t) ? L("Edit…") : L("Customize a copy…")) { edit(t) }
+                                    Button(L("Share…")) { sharingTheme = theme.shareInfo(t) }
+                                    if theme.isUserTheme(t) {
+                                        Divider()
+                                        Button(L("Delete"), role: .destructive) { theme.delete(t) }
+                                    }
+                                }
                         }
                     }
                     HStack {
+                        // parity: theme-editor
+                        Button { edit(theme.current) } label: {
+                            Label(theme.isUserTheme(theme.current) ? L("Edit theme…") : L("Customize…"), systemImage: "paintbrush.pointed")
+                        }.buttonStyle(GlowButtonStyle())
+                        Button(L("Paste theme code")) { c.importCodeFromClipboard() }.buttonStyle(GlowButtonStyle(prominent: false))
                         Button(L("Open Themes Folder")) { theme.openUserFolder() }.buttonStyle(GlowButtonStyle(prominent: false))
                         Button(L("Reload")) { withAnimation { theme.reload() } }.buttonStyle(GlowButtonStyle(prominent: false))
                         Spacer()
@@ -147,7 +162,28 @@ struct AppearanceSettings: View {
             }
             .padding(20)
         }
+        .sheet(item: $editing) { e in ThemeEditor(draft: e.theme, existing: e.existing) }
+        .sheet(item: $sharingTheme) { ShareSheet(info: $0) }
     }
+
+    /// Built-in themes are copied (new id on save); user themes are edited in place.
+    private func edit(_ t: Theme) {
+        if theme.isUserTheme(t) {
+            editing = ThemeEditTarget(theme: t, existing: true)
+        } else {
+            var copy = t
+            copy.id = ""
+            copy.name = L("%@ (mine)", t.name)
+            copy.author = nil
+            editing = ThemeEditTarget(theme: copy, existing: false)
+        }
+    }
+}
+
+struct ThemeEditTarget: Identifiable {
+    let id = UUID()
+    let theme: Theme
+    let existing: Bool
 }
 
 /// Preview tile: the theme's background, blobs and a sample curve.
@@ -157,9 +193,15 @@ struct ThemeCard: View {
     let selected: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        let photo = theme.backgroundImage(t).map { (Image(nsImage: $0), $0.size) }
+        return VStack(alignment: .leading, spacing: 0) {
             Canvas { ctx, size in
                 ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(t.baseColor))
+                if let (img, isz) = photo {
+                    var l = ctx
+                    l.opacity = t.background.imageOpacity
+                    l.draw(img, in: aspectFill(isz, in: size))
+                }
                 for (i, col) in t.blobColors.enumerated() {
                     let cx = size.width * [0.2, 0.8, 0.55, 0.1][i % 4]
                     let cy = size.height * [0.3, 0.2, 0.9, 0.85][i % 4]

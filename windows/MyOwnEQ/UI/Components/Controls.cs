@@ -93,6 +93,12 @@ public sealed class ThemeBackground : FrameworkElement
         double pulse = Ui.Store.Settings.Reactive ? SpectrumFeed.Shared.Level : 0;
         double time = (DateTime.UtcNow - _t0).TotalSeconds * 0.07 * t.Background.Speed;
         dc.DrawRectangle(Theme.Frozen(t.BaseColor), null, new Rect(0, 0, w, h));
+        if (Ui.Store.BackgroundImage(t) is { } img)
+        {
+            dc.PushOpacity(t.Background.ImageOpacity);
+            dc.DrawImage(img, ThemeStore.AspectFill(img, new Size(w, h)));
+            dc.Pop();
+        }
         var colors = t.BlobColors;
         int n = Math.Max(colors.Length, 1);
         double dim = Math.Max(w, h);

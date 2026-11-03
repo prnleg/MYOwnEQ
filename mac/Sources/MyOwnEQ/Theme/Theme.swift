@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 import UniformTypeIdentifiers
 import SwiftUI
 
@@ -10,6 +11,15 @@ struct Theme: Codable, Identifiable, Equatable {
         var blobs: [String]
         var intensity: Double = 0.4
         var speed: Double = 1
+        /// File name in `Themes/images/` (user themes only).
+        var image: String?
+        var imageOpacity: Double = 1
+        var imageBlur: Double = 0
+
+        enum CodingKeys: String, CodingKey {
+            case base, blobs, intensity, speed, image
+            case imageOpacity = "image_opacity", imageBlur = "image_blur"
+        }
     }
 
     var id: String
@@ -47,7 +57,7 @@ struct Theme: Codable, Identifiable, Equatable {
     static let fallback = Theme(
         id: "neon-sunset", name: "Neon Sunset", author: "MyOwnEQ", dark: true, accent: "#FF2E88",
         curve: ["#FF2E88", "#FF7A2E", "#FFD23F"], spectrum: ["#FF2E88", "#7B2CBF"],
-        background: .init(base: "#0E0B1A", blobs: ["#FF2E88", "#7B2CBF", "#FF7A2E", "#3A0CA3"], intensity: 0.45, speed: 1),
+        background: .init(base: "#0E0B1A", blobs: ["#FF2E88", "#7B2CBF", "#FF7A2E", "#3A0CA3"], intensity: 0.45, speed: 1, image: nil),
         panel: "#1A1430", glow: 0.9)
 
     private enum CodingKeys: String, CodingKey { case id, name, author, dark, accent, curve, spectrum, background, panel, glow }
@@ -72,13 +82,15 @@ struct Theme: Codable, Identifiable, Equatable {
 }
 
 extension Theme.Background {
-    private enum K: String, CodingKey { case base, blobs, intensity, speed }
     init(from d: Decoder) throws {
-        let c = try d.container(keyedBy: K.self)
+        let c = try d.container(keyedBy: CodingKeys.self)
         base = try c.decode(String.self, forKey: .base)
         blobs = try c.decodeIfPresent([String].self, forKey: .blobs) ?? []
         intensity = try c.decodeIfPresent(Double.self, forKey: .intensity) ?? 0.4
         speed = try c.decodeIfPresent(Double.self, forKey: .speed) ?? 1
+        image = try c.decodeIfPresent(String.self, forKey: .image)
+        imageOpacity = try c.decodeIfPresent(Double.self, forKey: .imageOpacity) ?? 1
+        imageBlur = try c.decodeIfPresent(Double.self, forKey: .imageBlur) ?? 0
     }
 }
 
@@ -174,6 +186,110 @@ final class ThemeStore: ObservableObject {
         guard let t = themes.first(where: { $0.id == id }) else { return }
         current = t
         d.set(id, forKey: "theme")
+        previewing = false
+    }
+
+    // MARK: theme editor
+    // parity: theme-editor
+
+    /// True while the editor shows a draft as the app's theme.
+    private var previewing = false
+
+    /// Show a draft everywhere without saving it (theme editor).
+    func preview(_ t: Theme) {
+        previewing = true
+        current = t
+    }
+
+    /// Back to the saved choice (editor cancelled).
+    func endPreview() {
+        guard previewing else { return }
+        previewing = false
+        current = themes.first { $0.id == d.string(forKey: "theme") } ?? .fallback
+    }
+
+    /// Themes in the user folder can be edited/deleted; built-in ones are copied first.
+    func isUserTheme(_ t: Theme) -> Bool {
+        FileManager.default.fileExists(atPath: Self.userDir.appendingPathComponent("\(t.id).json").path)
+    }
+
+    /// Save (new when `t.id` is empty) and switch to it. Returns the id.
+    @discardableResult
+    func save(_ t: Theme) -> String? {
+        guard let core, let data = try? JSONEncoder().encode(t),
+              var obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        if t.id.isEmpty { obj.removeValue(forKey: "id") }
+        let r = core.command("theme_save", ["theme": obj])
+        guard let id = r["id"] as? String else {
+            loadErrors = [r["error"] as? String ?? "?"]
+            return nil
+        }
+        reload()
+        select(id)
+        return id
+    }
+
+    func delete(_ t: Theme) {
+        _ = core?.command("theme_delete", ["id": t.id])
+        reload()
+        if current.id == t.id { select(Theme.fallback.id) }
+    }
+
+    /// `MEQT-…` code + QR (background image not included).
+    func shareInfo(_ t: Theme) -> ShareInfo? {
+        guard let core, let data = try? JSONEncoder().encode(t),
+              let obj = try? JSONSerialization.jsonObject(with: data) else { return nil }
+        let r = core.command("theme_code", ["theme": obj])
+        guard let code = r["code"] as? String else { return nil }
+        return ShareInfo(name: t.name, code: code, qr: r["qr"] as? [String] ?? [], kind: .theme)
+    }
+
+    /// Copy an image into `Themes/images` as a JPEG (longest side ≤ 2560 px).
+    /// Returns the file name to put in `background.image`.
+    func importBackgroundImage(_ url: URL) -> String? {
+        guard let img = NSImage(contentsOf: url),
+              let cg = img.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return nil }
+        let maxSide = 2560.0
+        let scale = min(1, maxSide / Double(max(cg.width, cg.height)))
+        let w = Int(Double(cg.width) * scale), h = Int(Double(cg.height) * scale)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                  bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue) else { return nil }
+        ctx.interpolationQuality = .high
+        ctx.draw(cg, in: CGRect(x: 0, y: 0, width: w, height: h))
+        guard let out = ctx.makeImage(),
+              let jpg = NSBitmapImageRep(cgImage: out).representation(using: .jpeg, properties: [.compressionFactor: 0.86])
+        else { return nil }
+        let name = "bg-\(UUID().uuidString.prefix(8).lowercased()).jpg"
+        let dir = Self.userDir.appendingPathComponent("images", isDirectory: true)
+        try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        guard (try? jpg.write(to: dir.appendingPathComponent(name))) != nil else { return nil }
+        return name
+    }
+
+    private var imageCache: [String: NSImage] = [:]
+
+    /// A theme's background image, blurred as the theme asks (cached).
+    func backgroundImage(_ t: Theme) -> NSImage? {
+        guard let file = t.background.image else { return nil }
+        let blur = (t.background.imageBlur * 2).rounded() / 2
+        let key = "\(file)|\(blur)"
+        if let i = imageCache[key] { return i }
+        let url = Self.userDir.appendingPathComponent("images").appendingPathComponent(file)
+        guard let src = NSImage(contentsOf: url) else { return nil }
+        var result = src
+        if blur > 0, let tiff = src.tiffRepresentation, let ci = CIImage(data: tiff) {
+            // Radius relative to the image size, so it looks the same for any resolution (Windows too).
+            let radius = blur * max(ci.extent.width, ci.extent.height) / 1200
+            let f = CIFilter(name: "CIGaussianBlur", parameters: [kCIInputImageKey: ci.clampedToExtent(), kCIInputRadiusKey: radius])
+            if let o = f?.outputImage?.cropped(to: ci.extent),
+               let cg = CIContext().createCGImage(o, from: ci.extent) {
+                result = NSImage(cgImage: cg, size: src.size)
+            }
+        }
+        if imageCache.count > 8 { imageCache.removeAll() }
+        imageCache[key] = result
+        return result
     }
 
     /// Parsing, validation and override rules live in the core (same for every app).
@@ -243,4 +359,16 @@ extension NSColor {
 
 extension Color {
     init(hex: String) { self.init(nsColor: NSColor(hex: hex)) }
+
+    /// `#RRGGBB`, or `#RRGGBBAA` when not opaque.
+    var hex: String {
+        let c = NSColor(self).usingColorSpace(.sRGB) ?? .black
+        let v = [c.redComponent, c.greenComponent, c.blueComponent, c.alphaComponent].map { Int(($0 * 255).rounded()).clamped(0, 255) }
+        return v[3] == 255 ? String(format: "#%02X%02X%02X", v[0], v[1], v[2])
+                           : String(format: "#%02X%02X%02X%02X", v[0], v[1], v[2], v[3])
+    }
+}
+
+private extension Int {
+    func clamped(_ lo: Int, _ hi: Int) -> Int { Swift.min(Swift.max(self, lo), hi) }
 }

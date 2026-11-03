@@ -49,5 +49,6 @@ em só um dos apps sem justificativa. Veja `CONTRIBUTING.md`.
 | Crossfeed para fones (bs2b) + inclinação (tilt) no Easy | `crossfeed` | ✅ | ✅ | Windows: precisa do motor MyOwnEQ (como o boost). |
 | Códigos de compartilhamento MEQ1-… (copiar, colar, QR) | `share-codes` | ✅ | ✅ | Código e QR gerados pelo core (share_code / import_code); sem servidor. |
 | Busca de fones do AutoEQ no app (correção em um clique, escolha de medição) | `autoeq-search` | ✅ | ✅ | Lista e arquivos baixados do GitHub do AutoEQ e guardados em cache (funciona offline depois). Alvo fixo de cada medição. |
+| Editor de tema no app: cores, manchas, brilho, imagem de fundo, códigos MEQT-… | `theme-editor` | ✅ | ✅ | Salvar/apagar/código pelo core (theme_save / theme_delete / theme_code). Imagem copiada para Themes/images como JPEG; não vai no código. |
 | Canal de controle local (linha de comando, outros apps) + opção em Preferências | `control` | ✅ | ✅ | Core: control.rs. Extensão: extensions/cli. |
 | Links myowneq:// (selecionar, ligar/desligar, importar código) | `links` | ✅ | ✅ | Mac: Info.plist; Windows: registro do instalador, segunda cópia repassa pelo canal. |

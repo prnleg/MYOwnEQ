@@ -488,10 +488,14 @@ public sealed class PreferencesPage : Page
         Card(L("Language"), Ui.GGlobe, langCol);
 
         var gallery = new WrapPanel();
-        foreach (var th in st.Themes) gallery.Children.Add(ThemeCard(th, th.Id == st.Current.Id));
+        foreach (var th in st.Themes) gallery.Children.Add(ThemeCard(c, th, th.Id == st.Current.Id));
+        // parity: theme-editor
+        var customize = Ui.Button(ThemeStore.IsUserTheme(st.Current) ? L("Edit theme…") : L("Customize…"),
+                                  () => ThemeEditor.Open(Window.GetWindow(this), c, st.Current), prominent: true, glyph: Ui.GEdit);
+        var pasteTheme = Ui.Button(L("Paste theme code"), () => c.ImportCodeFromClipboard(), glyph: Ui.GPaste);
         var themeCol = Ui.VStack(10, gallery,
-            Ui.Spread(Ui.HStack(8, Ui.Button(L("Open Themes Folder"), () => ThemeStore.OpenFolder("Themes")), Ui.Button(L("Reload"), st.Reload)),
-                      Link(L("How to make a theme"), "https://github.com/prnleg/MYOwnEQ/tree/main/themes")));
+            Ui.HStack(8, customize, pasteTheme, Ui.Button(L("Open Themes Folder"), () => ThemeStore.OpenFolder("Themes")), Ui.Button(L("Reload"), st.Reload)),
+            Link(L("How to make a theme"), "https://github.com/prnleg/MYOwnEQ/tree/main/themes"));
         foreach (var e in st.LoadErrors) Ui.Add(themeCol, Ui.Text(e, 11, color: Brushes.Orange), 10, false);
         Card(L("Theme"), Ui.GPalette, themeCol);
 
@@ -551,11 +555,18 @@ public sealed class PreferencesPage : Page
         return tb;
     }
 
-    private static UIElement ThemeCard(Theme th, bool selected)
+    private UIElement ThemeCard(AppController c, Theme th, bool selected)
     {
+        var photo = Ui.Store.BackgroundImage(th);
         var preview = new DrawLayer((dc, size) =>
         {
             dc.DrawRectangle(Theme.Frozen(th.BaseColor), null, new Rect(size));
+            if (photo is not null)
+            {
+                dc.PushOpacity(th.Background.ImageOpacity);
+                dc.DrawImage(photo, ThemeStore.AspectFill(photo, size));
+                dc.Pop();
+            }
             double[] xs = { 0.2, 0.8, 0.55, 0.1 }, ys = { 0.3, 0.2, 0.9, 0.85 };
             var blobs = th.BlobColors;
             for (int i = 0; i < blobs.Length; i++)
@@ -599,6 +610,26 @@ public sealed class PreferencesPage : Page
             Effect = new System.Windows.Media.Effects.DropShadowEffect { BlurRadius = selected ? 14 : 6, ShadowDepth = 2, Color = selected ? th.AccentColor : Colors.Black, Opacity = selected ? 0.5 : 0.2 },
         };
         card.MouseLeftButtonUp += (_, _) => Ui.Store.Select(th.Id);
+        bool mine = ThemeStore.IsUserTheme(th);
+        var menu = new ContextMenu();
+        var edit = new MenuItem { Header = mine ? L("Edit…") : L("Customize a copy…") };
+        edit.Click += (_, _) => ThemeEditor.Open(Window.GetWindow(this), c, th);
+        var share = new MenuItem { Header = L("Share…") };
+        share.Click += (_, _) => Dialogs.ShareTheme(Window.GetWindow(this), c, th);
+        menu.Items.Add(edit);
+        menu.Items.Add(share);
+        if (mine)
+        {
+            var del = new MenuItem { Header = L("Delete") };
+            del.Click += (_, _) =>
+            {
+                if (MessageBox.Show(Window.GetWindow(this), L("Delete “%@”?", th.Name), "MyOwnEQ", MessageBoxButton.YesNo, MessageBoxImage.Warning) == MessageBoxResult.Yes)
+                    Ui.Store.Delete(th);
+            };
+            menu.Items.Add(new Separator());
+            menu.Items.Add(del);
+        }
+        card.ContextMenu = menu;
         return card;
     }
 

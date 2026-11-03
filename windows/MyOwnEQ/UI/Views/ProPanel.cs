@@ -90,7 +90,7 @@ public sealed class ProPanel : StackPanel
         row.BorderThickness = new Thickness(on ? 1.5 : 1);
     }
 
-    private static DockPanel LabeledSlider(string label, double min, double max, double value, bool bipolar, Func<double, string> fmt, Action<double> changed, double step = 0, double labelWidth = 76)
+    internal static DockPanel LabeledSlider(string label, double min, double max, double value, bool bipolar, Func<double, string> fmt, Action<double> changed, double step = 0, double labelWidth = 76)
     {
         var l = Ui.Text(label, 13);
         l.Width = labelWidth;

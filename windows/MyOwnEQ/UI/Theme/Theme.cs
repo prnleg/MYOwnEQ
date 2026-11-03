@@ -5,6 +5,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Media;
@@ -20,6 +21,10 @@ public sealed class Theme
         public List<string> Blobs { get; set; } = new();
         public double Intensity { get; set; } = 0.4;
         public double Speed { get; set; } = 1;
+        /// <summary>File name in <c>Themes\images</c> (user themes only).</summary>
+        [JsonPropertyName("image")] public string? Image { get; set; }
+        [JsonPropertyName("image_opacity")] public double ImageOpacity { get; set; } = 1;
+        [JsonPropertyName("image_blur")] public double ImageBlur { get; set; }
     }
 
     public string Id { get; set; } = "";
@@ -167,10 +172,147 @@ public sealed class ThemeStore
     public void Select(string id)
     {
         if (Themes.FirstOrDefault(t => t.Id == id) is not { } t) return;
+        _previewing = false;
         Current = t;
         Settings.Theme = id;
         Settings.Save();
         Apply();
+    }
+
+    // ---- theme editor
+    // parity: theme-editor
+
+    private bool _previewing;
+
+    /// <summary>Show a draft everywhere without saving it (theme editor).</summary>
+    public void Preview(Theme t)
+    {
+        _previewing = true;
+        Current = t;
+        Apply();
+    }
+
+    /// <summary>Back to the saved choice (editor cancelled).</summary>
+    public void EndPreview()
+    {
+        if (!_previewing) return;
+        _previewing = false;
+        Current = Themes.FirstOrDefault(t => t.Id == Settings.Theme) ?? Theme.Fallback;
+        Apply();
+    }
+
+    /// <summary>Themes in the user folder can be edited/deleted; built-in ones are copied first.</summary>
+    public static bool IsUserTheme(Theme t) =>
+        t.Id.Length > 0 && File.Exists(System.IO.Path.Combine(UserDir("Themes"), t.Id + ".json"));
+
+    private static JsonNode? ToJson(Theme t) => JsonSerializer.SerializeToNode(t, Json.Options);
+
+    /// <summary>Save (new when <c>t.Id</c> is empty) and switch to it.</summary>
+    public string? Save(Theme t)
+    {
+        if (_core is null || ToJson(t) is not JsonObject obj) return null;
+        if (t.Id.Length == 0) obj.Remove("id");
+        var r = _core.Command("theme_save", new { theme = obj });
+        if (r["id"]?.GetValue<string>() is not { } id)
+        {
+            LoadErrors = new() { r["error"]?.GetValue<string>() ?? "?" };
+            return null;
+        }
+        Reload();
+        Select(id);
+        return id;
+    }
+
+    public void Delete(Theme t)
+    {
+        _core?.Command("theme_delete", new { id = t.Id });
+        Reload();
+        if (Current.Id == t.Id) Select(Theme.Fallback.Id);
+    }
+
+    /// <summary>MEQT-… code + QR rows (background image not included).</summary>
+    public (string Code, List<string> Qr)? ShareCode(Theme t)
+    {
+        if (_core is null) return null;
+        var r = _core.Command("theme_code", new { theme = ToJson(t) });
+        if (r["code"]?.GetValue<string>() is not { } code) return null;
+        return (code, r["qr"]?.AsArray().Select(x => x?.GetValue<string>() ?? "").ToList() ?? new());
+    }
+
+    /// <summary>Copy an image into Themes\images as a JPEG (longest side ≤ 2560 px).
+    /// Returns the file name for <c>background.image</c>.</summary>
+    public static string? ImportBackgroundImage(string file)
+    {
+        try
+        {
+            var src = new System.Windows.Media.Imaging.BitmapImage();
+            src.BeginInit();
+            src.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            src.UriSource = new Uri(file);
+            src.EndInit();
+            double scale = Math.Min(1, 2560.0 / Math.Max(src.PixelWidth, src.PixelHeight));
+            System.Windows.Media.Imaging.BitmapSource img = scale < 1
+                ? new System.Windows.Media.Imaging.TransformedBitmap(src, new ScaleTransform(scale, scale))
+                : src;
+            var enc = new System.Windows.Media.Imaging.JpegBitmapEncoder { QualityLevel = 86 };
+            enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(img));
+            var dir = System.IO.Path.Combine(UserDir("Themes"), "images");
+            Directory.CreateDirectory(dir);
+            var name = $"bg-{Guid.NewGuid().ToString("N")[..8]}.jpg";
+            using (var fs = File.Create(System.IO.Path.Combine(dir, name))) enc.Save(fs);
+            return name;
+        }
+        catch { return null; }
+    }
+
+    private readonly Dictionary<string, ImageSource> _images = new();
+
+    /// <summary>A theme's background image, blurred as the theme asks (cached).</summary>
+    public ImageSource? BackgroundImage(Theme t)
+    {
+        if (t.Background.Image is not { Length: > 0 } file) return null;
+        double blur = Math.Round(t.Background.ImageBlur * 2) / 2;
+        var key = $"{file}|{blur}";
+        if (_images.TryGetValue(key, out var cached)) return cached;
+        try
+        {
+            var path = System.IO.Path.Combine(UserDir("Themes"), "images", file);
+            if (!File.Exists(path)) return null;
+            var bmp = new System.Windows.Media.Imaging.BitmapImage();
+            bmp.BeginInit();
+            bmp.CacheOption = System.Windows.Media.Imaging.BitmapCacheOption.OnLoad;
+            bmp.UriSource = new Uri(path);
+            bmp.EndInit();
+            bmp.Freeze();
+            ImageSource result = bmp;
+            if (blur > 0)
+            {
+                // Blur once into a bitmap (an Effect would re-blur every frame).
+                int w = bmp.PixelWidth, h = bmp.PixelHeight;
+                var img = new System.Windows.Controls.Image { Source = bmp, Width = w, Height = h, Stretch = Stretch.Fill,
+                    Effect = new System.Windows.Media.Effects.BlurEffect { Radius = blur * Math.Max(w, h) / 1200.0, KernelType = System.Windows.Media.Effects.KernelType.Gaussian } };
+                img.Measure(new Size(w, h));
+                img.Arrange(new Rect(0, 0, w, h));
+                var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                rtb.Render(img);
+                rtb.Freeze();
+                result = rtb;
+            }
+            if (_images.Count > 8) _images.Clear();
+            _images[key] = result;
+            return result;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>Rect that covers <paramref name="bounds"/> with an image (aspect fill, centered).</summary>
+    public static Rect AspectFill(ImageSource img, Size bounds)
+    {
+        double iw = img is System.Windows.Media.Imaging.BitmapSource b ? b.PixelWidth : img.Width;
+        double ih = img is System.Windows.Media.Imaging.BitmapSource b2 ? b2.PixelHeight : img.Height;
+        if (iw <= 0 || ih <= 0) return new Rect(bounds);
+        double s = Math.Max(bounds.Width / iw, bounds.Height / ih);
+        return new Rect((bounds.Width - iw * s) / 2, (bounds.Height - ih * s) / 2, iw * s, ih * s);
     }
 
     public void Update(Action<UiSettings> change)
