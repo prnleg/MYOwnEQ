@@ -48,6 +48,9 @@ visível no `PARITY.md` e alguém pode fechar depois.
 - Windows: o CI roda o app com `--selftest`; se falhar, publica prints de todas as
   telas e o log no artefato `selftest-screenshots`.
 - Core: `cargo test --workspace`.
+- Prints do Mac (site, README): `cd mac && swift build`, depois
+  `MYOWNEQ_DATA_DIR=$(mktemp -d) .build/debug/MyOwnEQ --screenshots <pasta> [<pasta com voxel-dusk.jpg e synthwave-drive.jpg>]`.
+  Usa uma pasta de dados descartável, sem áudio e sem update; a barra lateral fica de fora do print (cortar).
 
 ## Commits
 

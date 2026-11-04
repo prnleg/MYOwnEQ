@@ -315,8 +315,7 @@ final class ThemeStore: ObservableObject {
     }
 
     static var userDir: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("MyOwnEQ/Themes", isDirectory: true)
+        CoreBridge.dataDir.appendingPathComponent("Themes", isDirectory: true)
     }
 
     func openUserFolder() {

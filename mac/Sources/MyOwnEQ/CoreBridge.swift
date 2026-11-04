@@ -99,8 +99,12 @@ final class CoreBridge {
         return "mac-" + String(hash, radix: 16)
     }
 
+    /// `MYOWNEQ_DATA_DIR` overrides it (screenshots, tests): a throwaway folder.
     static var dataDir: URL {
-        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        if let d = ProcessInfo.processInfo.environment["MYOWNEQ_DATA_DIR"], !d.isEmpty {
+            return URL(fileURLWithPath: d, isDirectory: true)
+        }
+        return FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("MyOwnEQ", isDirectory: true)
     }
 }

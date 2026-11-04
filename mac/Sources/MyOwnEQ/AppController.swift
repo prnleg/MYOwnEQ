@@ -52,7 +52,7 @@ final class AppController: ObservableObject {
         // the last session, this launch is the "restart": install it now.
         // Dev builds (build-app.sh --native/--run) never self-update: they share
         // the data folder with the installed app and would install its update.
-        if Self.devBuild == nil {
+        if Self.devBuild == nil, !Self.screenshotMode {
             updateReply(core.command("update_configure", ["version": Self.appVersion, "platform": "mac"]))
             if update?.isReady == true, update?.auto != false {
                 installUpdateAndQuit()
@@ -125,9 +125,16 @@ final class AppController: ObservableObject {
         ["uid": d.uid, "name": d.name, "kind": d.kind.rawValue]
     }
 
+    /// `--screenshots`: render the UI to PNGs (Screenshots.swift). No audio, no updates.
+    static let screenshotMode = CommandLine.arguments.contains("--screenshots")
+
     func restartEngine() {
         engine.stop()
         engineRunning = false
+        if Self.screenshotMode {
+            engineRunning = true // looks like a normal running app; nothing is captured
+            return
+        }
         guard state?.enabled ?? true, let dev = current else {
             engineError = nil
             return
