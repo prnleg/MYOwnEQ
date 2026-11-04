@@ -8,7 +8,8 @@ name: release
 #
 # Required secret: MYOWNEQ_SIGNING_KEY (see RELEASING.md).
 # Optional secrets: MAC_CERT_P12 + MAC_CERT_PASSWORD (stable macOS signature,
-# so the audio permission survives updates).
+# so the audio permission survives updates); SITE_DEPLOY_HOOK (Cloudflare Pages
+# deploy hook: rebuilds myowneq.com so the new version shows up in its diário).
 
 on:
   push:
@@ -187,3 +188,15 @@ jobs:
         with:
           files: dist/*
           generate_release_notes: true
+
+      # After the release is public: the site reads it at build time. A failure here
+      # never fails the release (the site's visitors check GitHub on their own too).
+      - name: Rebuild the site (optional)
+        if: ${{ !contains(github.ref_name, '-') }}
+        continue-on-error: true
+        env:
+          SITE_DEPLOY_HOOK: ${{ secrets.SITE_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$SITE_DEPLOY_HOOK" ]; then echo "SITE_DEPLOY_HOOK not set, skipping"; exit 0; fi
+          curl -fsS -X POST --retry 3 --max-time 30 "$SITE_DEPLOY_HOOK" > /dev/null
+          echo "site rebuild requested"

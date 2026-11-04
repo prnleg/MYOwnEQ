@@ -20,7 +20,14 @@
    o certificado "Apple Development" pelo Acesso às Chaves como .p12 e adicione os
    secrets `MAC_CERT_P12` (`base64 -i cert.p12 | pbcopy`) e `MAC_CERT_PASSWORD`.
 
-3. **Visibilidade da imagem do servidor.** Depois da primeira release, abra
+3. **(Opcional) Atualizar o site junto.** O myowneq.com lê a última release na
+   hora do build. Pra ele se refazer sozinho a cada release: Cloudflare › Workers &
+   Pages › projeto do site › Settings › Builds › **Deploy hooks** › Add (nome
+   `release`, branch `main`), copie a URL e adicione o secret `SITE_DEPLOY_HOOK`
+   com ela. Sem o secret o passo é pulado. A URL é secreta: quem tiver ela consegue
+   disparar builds do site.
+
+4. **Visibilidade da imagem do servidor.** Depois da primeira release, abra
    *github.com/prnleg?tab=packages → myowneq-server → Package settings* e deixe
    como Public, para o `docker compose pull` funcionar sem login.
 
